@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include <paging.h>
+#include <portio.h>
 
 void memcpy(void* src, void* dest, size_t size) {
   for (size_t i = 0; i < size; i++) {
@@ -17,7 +17,7 @@ typedef struct {
 Cursor cursor = {0, 0};
 uint8_t color = 0x07;
 
-int putchar(char c) {
+void putchar(char c) {
   int relative_pos = (cursor.y * 80 + cursor.x) * 2;
   volatile char *video = (volatile char*) 0xb8000;
 
@@ -98,50 +98,47 @@ int write_string(const char *string) {
   return 0;
 }
 
-void test_pages(void) {
-    write_string("Testing paging\n");
-
-    char* physical_ptr = (char*)0x01000000;
-
-    map_page((void*)physical_ptr, (void*)physical_ptr, PAGE_WRITABLE);
-
-    physical_ptr[0] = 'O';
-    physical_ptr[1] = 'K';
-
-    unmap_page((void*)physical_ptr);
-
-    char* virt_ptr = (char*)0x02000000;
-
-    map_page((void*)virt_ptr, (void*)physical_ptr, PAGE_WRITABLE);
-
-    putchar(virt_ptr[0]); // should print 'O'
-    putchar(virt_ptr[1]); // should print 'K'
-    
-    putchar('\n');
-    unmap_page(virt_ptr);
-}
-
 void kernel_main(uint32_t magic, uint32_t mb2_info) {
     color = 0x0B;
     write_string("CaladanOS");
-    
     color = 0x07;
-    write_string(" kernel loaded\n\n");
+    write_string(" loaded                 \n\n");
 
+    write_string("kernel at: 0x");
     char buff[256];
+    itoa((int)&kernel_main, buff, 16);
+    write_string(buff);
+    putchar('\n');
+
     itoa(magic, buff, 16);
-
-    write_string("bootloader passed:\n");
-    write_string("                  magic: 0x");
+    write_string("multiboot2 info:\n");
+    write_string("    magic: 0x");
     write_string(buff);
     putchar('\n');
-
+    
     itoa(mb2_info, buff, 16);
-    write_string("                  mb2_info (physical adress): 0x");
+    write_string("    table adress: 0x");
     write_string(buff);
     putchar('\n');
+    putchar('\n');
 
-    __asm__ volatile("cli");
-    __asm__ volatile("hlt");
+    extern void setup_page_tables();
+    setup_page_tables();
+    
+    unsigned long cr3_value = 0x1000;
+
+    __asm__ volatile (
+        "mov %0, %%rax\n\t"
+        "mov %%rax, %%cr3"
+        :
+        : "r"(cr3_value)
+        : "rax"
+    );
+    
+    write_string("cr3 chnged to: 0x");
+    itoa(cr3_value, buff, 16);
+    write_string(buff);
+
+    __asm__ volatile( "cli" );
+    __asm__ volatile( "hlt" );
 }
-
