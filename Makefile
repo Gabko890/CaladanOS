@@ -7,8 +7,7 @@ BOOT_SRC_DIR   := boot/src
 BOOT_INC_DIR   := boot/include
 KERNEL_SRC_DIR := kernel/src
 KERNEL_INC_DIR := kernel/include
-UTILS_SRC_DIR  := utils/src
-UTILS_INC_DIR  := utils/include
+UTILS_DIR      := utils
 DRIVERS_SRC_DIR := drivers
 DRIVERS_INC_DIR := drivers
 BUILD_DIR      := build
@@ -21,8 +20,8 @@ BOOT_ASM_SOURCES    := $(shell find $(BOOT_SRC_DIR) -name '*.asm')
 BOOT_C_SOURCES      := $(shell find $(BOOT_SRC_DIR) -name '*.c')
 KERNEL_ASM_SOURCES  := $(shell find $(KERNEL_SRC_DIR) -name '*.asm')
 KERNEL_C_SOURCES    := $(shell find $(KERNEL_SRC_DIR) -name '*.c')
-UTILS_ASM_SOURCES   := $(shell find $(UTILS_SRC_DIR) -name '*.asm')
-UTILS_C_SOURCES     := $(shell find $(UTILS_SRC_DIR) -name '*.c')
+UTILS_ASM_SOURCES   := $(shell find $(UTILS_DIR) -name '*.asm')
+UTILS_C_SOURCES     := $(shell find $(UTILS_DIR) -name '*.c')
 DRIVERS_ASM_SOURCES := $(shell find $(DRIVERS_SRC_DIR) -name '*.asm')
 DRIVERS_C_SOURCES   := $(shell find $(DRIVERS_SRC_DIR) -name '*.c')
 
@@ -30,17 +29,17 @@ BOOT_ASM_OBJECTS    := $(patsubst $(BOOT_SRC_DIR)/%.asm, $(BUILD_DIR)/boot/%.o, 
 BOOT_C_OBJECTS      := $(patsubst $(BOOT_SRC_DIR)/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_C_SOURCES))
 KERNEL_ASM_OBJECTS  := $(patsubst $(KERNEL_SRC_DIR)/%.asm, $(BUILD_DIR)/kernel/%.o, $(KERNEL_ASM_SOURCES))
 KERNEL_C_OBJECTS    := $(patsubst $(KERNEL_SRC_DIR)/%.c, $(BUILD_DIR)/kernel/%.o, $(KERNEL_C_SOURCES))
-UTILS_ASM_OBJECTS   := $(patsubst $(UTILS_SRC_DIR)/%.asm, $(BUILD_DIR)/utils/%.o, $(UTILS_ASM_SOURCES))
-UTILS_C_OBJECTS     := $(patsubst $(UTILS_SRC_DIR)/%.c, $(BUILD_DIR)/utils/%.o, $(UTILS_C_SOURCES))
+UTILS_ASM_OBJECTS   := $(patsubst $(UTILS_DIR)/%.asm, $(BUILD_DIR)/utils/%.o, $(UTILS_ASM_SOURCES))
+UTILS_C_OBJECTS     := $(patsubst $(UTILS_DIR)/%.c, $(BUILD_DIR)/utils/%.o, $(UTILS_C_SOURCES))
 DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_ASM_SOURCES))
 DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
 OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS)
 
 CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib \
-                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_INC_DIR) \
+                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_DIR)/ascii -I$(UTILS_DIR)/portio -I$(UTILS_DIR)/vgaio \
                   -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
 
-.PHONY: all clean build-x86_64
+.PHONY: all clean build-x86_64 mmap build qemu build-docker
 
 all: build-x86_64
 
@@ -61,11 +60,11 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/utils/%.o: $(UTILS_SRC_DIR)/%.asm
+$(BUILD_DIR)/utils/%.o: $(UTILS_DIR)/%.asm
 	@mkdir -p $(dir $@)
 	$(ASM) -f elf64 $< -o $@
 
-$(BUILD_DIR)/utils/%.o: $(UTILS_SRC_DIR)/%.c
+$(BUILD_DIR)/utils/%.o: $(UTILS_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -90,6 +89,26 @@ build-x86_64: $(OBJECTS)
 
 	cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
 	$(GRUBMKRESCUE) -o $(BUILD_DIR)/kernel.iso $(ISO_DIR)
+
+# Generate memory map
+mmap:
+	@echo "Generating memory map..."
+	python3 scripts/generate_mmap.py
+
+# Build using Docker (from build.sh)
+build:
+	@echo "Building kernel using Docker..."
+	sudo docker run -it --rm -v "$$PWD":/root/env cld-kernel-env make
+
+# Build Docker image (from docker/build_docker.sh)
+build-docker:
+	@echo "Building Docker image..."
+	sudo docker build -t cld-kernel-env -f Dockerfile .
+
+# Run kernel in QEMU (from run_qemu.sh)
+qemu:
+	@echo "Starting QEMU..."
+	sudo qemu-system-x86_64 -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
 
 # Clean build artifacts
 clean:
