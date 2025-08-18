@@ -5,8 +5,8 @@
 #include <stdarg.h>
 
 typedef struct {
-  uint8_t x;
-  uint8_t y;
+    uint8_t x;
+    uint8_t y;
 } Cursor;
 
 void vga_putchar(char);
