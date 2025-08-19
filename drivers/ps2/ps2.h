@@ -2,6 +2,10 @@
 #define PS2_H
 
 #include <stdbool.h>
+#include <stdint.h>
+
+void ps2_init(void);
+void ps2_handler(void);
 
 #define US_A 0x1E
 #define US_B 0x30
