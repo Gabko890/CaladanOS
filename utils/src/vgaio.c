@@ -8,6 +8,9 @@ static volatile char* vga_addr = (volatile char*) 0xb8000;
 static Cursor cursor = {0, 0};
 static uint8_t arrt = 0x07;
 
+
+//  ===================== output =========================
+//
 void vga_putchar(char c) {
   int relative_pos = (cursor.y * 80 + cursor.x) * 2;
 
@@ -130,3 +133,5 @@ int vga_printf(const char *fmt, ...) {
   va_end(args);
   return count;
 }
+
+// ====================== input =======================
