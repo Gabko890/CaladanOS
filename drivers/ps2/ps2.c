@@ -22,10 +22,23 @@ void ps2_init(void) {
     inb(0x60);  // Read ACK byte
 }
 
+
+static unsigned __int128 keyarr = 0;
+
 void ps2_handler(void) {
     uint8_t scancode = inb(0x60);  // Read keyboard data to acknowledge
     if (scancode != 0xFA) {  // Ignore ACK bytes
-        vga_putchar('K');
-        vga_printf(" %X \n", scancode);  // Show the scancode
+        if (scancode < 0x80) {
+            keyarr |= (unsigned __int128)1 << scancode;
+        } else {
+            keyarr &= ~((unsigned __int128)1 << (scancode - 0x80));
+        }
+
+        if (keyarr & ((unsigned __int128)1 << US_A)) vga_putchar('a');
+        //else if (keyarr << US_B) vga_putchar('b');
     }
+}
+
+unsigned __int128 ps2_keyarr() {
+    return keyarr;
 }

@@ -7,7 +7,6 @@
 #include <ps2.h>
 #include <pic.h>
 
-
 void handle_ps2() {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
