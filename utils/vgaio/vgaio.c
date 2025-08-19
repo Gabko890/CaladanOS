@@ -41,22 +41,21 @@ int vga_puts(const char *string) {
     while( *string != 0 ) {
         if (*string != '\n') {
             int relative_pos = (cursor.y * 80 + cursor.x) * 2;
-            video[relative_pos] = *string++;
+            video[relative_pos] = *string;
             video[relative_pos + 1] = arrt;
-
-            #ifdef QEMU_ISA_DEBUGCON
-            outb(0xe9, string[-1]);
-            #endif 
-
             cursor.x++;
-        } else {
-            *string++;
         }
 
         if (cursor.x > 80 || *string == '\n') {
             cursor.x = 0;
             cursor.y++;
         }
+        
+        #ifdef QEMU_ISA_DEBUGCON
+        outb(0xe9, *string);
+        #endif
+        
+        *string++;
     }
 
     return 0;
