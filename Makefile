@@ -15,6 +15,7 @@ BUILD_DIR      := build
 ISO_DIR        := $(BUILD_DIR)/iso
 CONF_DIR       := config
 LINKER_SCRIPT  := targets/x86_64.ld
+RAMFS_DIR      := ramfs
 
 BOOT_ASM_SOURCES    := $(shell find $(BOOT_SRC_DIR) -name '*.asm')
 BOOT_C_SOURCES      := $(shell find $(BOOT_SRC_DIR) -name '*.c')
@@ -35,12 +36,15 @@ DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers
 DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
 OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS)
 
-CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_INC_DIR) -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
+CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib \
+                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_INC_DIR) \
+                  -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
 
 .PHONY: all clean build-x86_64
 
 all: build-x86_64
 
+# Build rules for ASM and C sources
 $(BUILD_DIR)/boot/%.o: $(BOOT_SRC_DIR)/%.asm
 	@mkdir -p $(dir $@)
 	$(ASM) -f elf64 $< -o $@
@@ -73,13 +77,21 @@ $(BUILD_DIR)/drivers/%.o: $(DRIVERS_SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Main build target
 build-x86_64: $(OBJECTS)
 	@mkdir -p $(BUILD_DIR)/kernel
 	@mkdir -p $(ISO_DIR)/boot/grub
 	$(LD) -n -o $(BUILD_DIR)/kernel/kernel.elf -T $(LINKER_SCRIPT) $(OBJECTS)
 	cp $(BUILD_DIR)/kernel/kernel.elf $(ISO_DIR)/boot/kernel.elf
+
+	# Create cpio ramfs at root of archive
+	@mkdir -p $(ISO_DIR)/boot
+	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$(ISO_DIR)/boot/ramfs.cpio)
+
 	cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
 	$(GRUBMKRESCUE) -o $(BUILD_DIR)/kernel.iso $(ISO_DIR)
 
+# Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR)/*
+
