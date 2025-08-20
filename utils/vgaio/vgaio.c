@@ -11,10 +11,19 @@ static Cursor cursor = {0, 0};
 static uint8_t arrt = 0x07;
 
 
+static void vga_update_cursor(int x, int y) {
+	uint16_t pos = y * VGA_WIDTH + x;
+
+	outb(0x3D4, 0x0F);
+	outb(0x3D5, (uint8_t) (pos & 0xFF));
+	outb(0x3D4, 0x0E);
+	outb(0x3D5, (uint8_t) ((pos >> 8) & 0xFF));
+}
+
 //  ===================== output =========================
 //
 void vga_putchar(char c) {
-    int relative_pos = (cursor.y * 80 + cursor.x) * 2;
+    int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
 
     if (c != '\n') {
         vga_addr[relative_pos] = c;
@@ -26,6 +35,8 @@ void vga_putchar(char c) {
         cursor.x = 0;
         cursor.y++;
     }
+
+    vga_update_cursor(cursor.x, cursor.y);
 
     #ifdef QEMU_ISA_DEBUGCON
     outb(0xe9, c);
@@ -40,7 +51,7 @@ int vga_puts(const char *string) {
 
     while( *string != 0 ) {
         if (*string != '\n') {
-            int relative_pos = (cursor.y * 80 + cursor.x) * 2;
+            int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
             video[relative_pos] = *string;
             video[relative_pos + 1] = arrt;
             cursor.x++;
@@ -58,6 +69,8 @@ int vga_puts(const char *string) {
         *string++;
     }
 
+    vga_update_cursor(cursor.x, cursor.y); 
+    
     return 0;
 }
 
