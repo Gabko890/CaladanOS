@@ -1,6 +1,4 @@
 #include <cldtypes.h>
-#include <stddef.h>
-
 #include <portio.h>
 #include <vgaio.h>
 #include <interrupts/interrupts.h>
@@ -11,11 +9,24 @@
 #include <memory_info.h>
 #include <ldinfo.h>
 
+#include <memory_mapper.h>
+
 void handle_ps2() {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
 }
 
+static void dbg_reg_print(struct memory_info* minfo) {
+    vga_printf("=== Available Memory Regions ===\n");
+    for (u8 i = 0; i < minfo->count; i++) {
+        vga_printf("Region %d: 0x%llx - 0x%llx (%llu KB)\n",
+                  i + 1,
+                  minfo->regions[i].addr_start,
+                  minfo->regions[i].addr_end,
+                  minfo->regions[i].size / 1024);
+    }
+    vga_printf("Available regions: %d\n", minfo->count);
+}
 
 void kernel_main(volatile u32 magic, u32 mb2_info) {
     vga_attr(0x0B);
@@ -38,35 +49,62 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     //multiboot2_print_memory_map(mb2_info);
     //multiboot2_print_modules(mb2_info);
 
+
+
     struct memory_info minfo = get_available_memory(mb2_info);
     
+    dbg_reg_print(&minfo);
+    
+    u64 pml4_phys = mm_init(&minfo /*, (void*)0xFFFFFFFF80400000UL*/);
+    
+    if (0x00 == pml4_phys) {
+        vga_printf("kernel map failure 1");
+        __asm__ volatile( "cli; hlt" );
+    }
+    vga_printf("pml_4 at: %llx\n", pml4_phys);
+    
+    /*
     vga_printf("=== Available Memory Regions ===\n");
     for (u8 i = 0; i < minfo.count; i++) {
-        vga_printf("Region %d: 0x%llx - 0x%llx (%llu KB)\n", 
-                  i + 1, 
+        vga_printf("Region %d: 0x%llx - 0x%llx (%llu KB)\n",
+                  i + 1,
                   minfo.regions[i].addr_start,
                   minfo.regions[i].addr_end,
                   minfo.regions[i].size / 1024);
     }
     vga_printf("Available regions: %d\n", minfo.count);
+    */
 
-    /*
-    extern void setup_page_tables();
-    setup_page_tables();
-    
-    unsigned long cr3_value = 0x10000;
+    dbg_reg_print(&minfo);
+
+    for (uint64_t addr = 0; addr < (16ULL << 30); addr += (2ULL << 20)) {
+        if (!mm_map(addr, addr, PTE_RW | PTE_HUGE, PAGE_2M)) {
+            vga_printf("identity map failure at %p\n", addr);
+            __asm__ volatile("cli; hlt");
+        }
+    }
+
+    uint64_t kernel_phys = 0x00200000ULL;   // KERNEL_PMA
+    uint64_t kernel_virt = 0xFFFFFFFF80000000ULL; // KERNEL_VMA
+    uint64_t kernel_size = 4ULL << 20; // e.g. 4 MiB kernel
+
+    for (uint64_t off = 0; off < kernel_size; off += 0x1000) {
+        if (!mm_map(kernel_virt + off, kernel_phys + off, PTE_RW | PTE_PRESENT, PAGE_4K)) {
+            vga_printf("kernel map failure2\n");
+            __asm__ volatile("cli; hlt");
+        }
+    }
 
     __asm__ volatile (
         "mov %0, %%cr3\n\t"
         "invlpg (%%rip)"
         :
-        : "r"(cr3_value)
+        : "r"(pml4_phys)
         : "memory"
     );
     
-    vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
-     
-    
+    vga_printf("cr3 chnged to: 0x%X\n", pml4_phys);
+        
     extern void irq1_handler();
 
     // interrupt system (PIC + IDT)
@@ -93,7 +131,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     vga_printf("Interrupts initialized\n");
     interrupts_enable();
     vga_printf("Keyboard enabled\n");
-    */
+    
     while(1) __asm__ volatile( "nop" );
     
     __asm__ volatile( "hlt" );
