@@ -1,11 +1,17 @@
 global start
 global page_table_l4
+global multiboot_magic
+global multiboot_info
+
 extern long_mode_start
 
 section .text
 bits 32
 start:
 	mov esp, stack_top
+
+	mov [multiboot_magic], eax
+	mov [multiboot_info], ebx
 
 	call check_multiboot
 	call check_cpuid
@@ -18,6 +24,11 @@ start:
 	jmp gdt64.code_segment:long_mode_start
 
 	hlt
+
+multiboot_magic: 
+	dd 0
+multiboot_info:  
+	dd 0
 
 check_multiboot:
 	cmp eax, 0x36d76289
