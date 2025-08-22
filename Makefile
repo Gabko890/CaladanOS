@@ -7,6 +7,8 @@ BOOT_SRC_DIR   := boot/src
 BOOT_INC_DIR   := boot/include
 KERNEL_SRC_DIR := kernel/src
 KERNEL_INC_DIR := kernel/include
+UTILS_SRC_DIR  := utils/src
+UTILS_INC_DIR  := utils/include
 BUILD_DIR      := build
 ISO_DIR        := $(BUILD_DIR)/iso
 CONF_DIR       := config
@@ -16,14 +18,18 @@ BOOT_ASM_SOURCES    := $(shell find $(BOOT_SRC_DIR) -name '*.asm')
 BOOT_C_SOURCES      := $(shell find $(BOOT_SRC_DIR) -name '*.c')
 KERNEL_ASM_SOURCES  := $(shell find $(KERNEL_SRC_DIR) -name '*.asm')
 KERNEL_C_SOURCES    := $(shell find $(KERNEL_SRC_DIR) -name '*.c')
+UTILS_ASM_SOURCES   := $(shell find $(UTILS_SRC_DIR) -name '*.asm')
+UTILS_C_SOURCES     := $(shell find $(UTILS_SRC_DIR) -name '*.c')
 
 BOOT_ASM_OBJECTS    := $(patsubst $(BOOT_SRC_DIR)/%.asm, $(BUILD_DIR)/boot/%.o, $(BOOT_ASM_SOURCES))
 BOOT_C_OBJECTS      := $(patsubst $(BOOT_SRC_DIR)/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_C_SOURCES))
 KERNEL_ASM_OBJECTS  := $(patsubst $(KERNEL_SRC_DIR)/%.asm, $(BUILD_DIR)/kernel/%.o, $(KERNEL_ASM_SOURCES))
 KERNEL_C_OBJECTS    := $(patsubst $(KERNEL_SRC_DIR)/%.c, $(BUILD_DIR)/kernel/%.o, $(KERNEL_C_SOURCES))
-OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS)
+UTILS_ASM_OBJECTS   := $(patsubst $(UTILS_SRC_DIR)/%.asm, $(BUILD_DIR)/utils/%.o, $(UTILS_ASM_SOURCES))
+UTILS_C_OBJECTS     := $(patsubst $(UTILS_SRC_DIR)/%.c, $(BUILD_DIR)/utils/%.o, $(UTILS_C_SOURCES))
+OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS)
 
-CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR)
+CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_INC_DIR)
 
 .PHONY: all clean build-x86_64
 
@@ -42,6 +48,14 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.asm
 	$(ASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/utils/%.o: $(UTILS_SRC_DIR)/%.asm
+	@mkdir -p $(dir $@)
+	$(ASM) -f elf64 $< -o $@
+
+$(BUILD_DIR)/utils/%.o: $(UTILS_SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
