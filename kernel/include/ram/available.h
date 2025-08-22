@@ -14,7 +14,7 @@ struct available_entry {
 
 struct available_map {
     uint8_t count;
-    struct available_entry[MAX_ENTRIES];
+    struct available_entry entries[MAX_ENTRIES];
 };
 
 #endif // AVAILABLE_H
