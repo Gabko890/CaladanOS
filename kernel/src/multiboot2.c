@@ -158,26 +158,26 @@ void multiboot2_print_memory_map(uint32_t mb2_info) {
     vga_printf("==================\n");
 }
 
-struct mb2_modules_list multiboot2_get_modules(uint32_t mb2_info) {
-    struct mb2_modules_list result = {0};
+void multiboot2_get_modules(uint32_t mb2_info, struct mb2_modules_list* result) {
     struct multiboot_tag *tag;
     
+    if (!result) return;
+    
+    result->count = 0;
+    
     for (tag = (struct multiboot_tag*)(uintptr_t)(mb2_info + 8);
-         tag->type != MULTIBOOT_TAG_TYPE_END && result.count < MB2_MAX_MODULES;
+         tag->type != MULTIBOOT_TAG_TYPE_END;
          tag = (struct multiboot_tag*)((uint8_t*)tag + ((tag->size + 7) & ~7))) {
         
         if (tag->type == MULTIBOOT_TAG_TYPE_MODULE) {
             struct multiboot_tag_module *module = (struct multiboot_tag_module*)tag;
             
-            result.modules[result.count].start_addr = module->mod_start;
-            result.modules[result.count].end_addr = module->mod_end;
-            result.modules[result.count].size = module->mod_end - module->mod_start;
-            result.modules[result.count].name = module->cmdline;
-            result.count++;
+            if (result->count < 32) {
+                result->modules[result->count] = module;
+                result->count++;
+            }
         }
     }
-    
-    return result;
 }
 
 struct mb2_memory_map multiboot2_get_memory_regions(uint32_t mb2_info) {

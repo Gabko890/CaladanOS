@@ -82,12 +82,6 @@ struct multiboot_tag_mmap {
 #define MB2_MAX_MEMORY_REGIONS 64
 
 // Clean data structures for programmatic access
-struct mb2_module_info {
-    uint32_t start_addr;
-    uint32_t end_addr;
-    uint32_t size;
-    const char* name;
-};
 
 struct mb2_memory_region {
     uint64_t start_addr;
@@ -96,14 +90,15 @@ struct mb2_memory_region {
     uint32_t type;
 };
 
-struct mb2_modules_list {
-    size_t count;
-    struct mb2_module_info modules[MB2_MAX_MODULES];
-};
 
 struct mb2_memory_map {
     size_t count;
     struct mb2_memory_region regions[MB2_MAX_MEMORY_REGIONS];
+};
+
+struct mb2_modules_list {
+    uint8_t count;
+    struct multiboot_tag_module* modules[32];
 };
 
 // Function declarations
@@ -116,7 +111,7 @@ struct multiboot_tag_mmap* multiboot2_get_memory_map(uint32_t mb2_info);
 size_t multiboot2_get_memory_map_entries(struct multiboot_tag_mmap* mmap_tag);
 
 // Clean API functions (no printing, just data)
-struct mb2_modules_list multiboot2_get_modules(uint32_t mb2_info);
+void multiboot2_get_modules(uint32_t mb2_info, struct mb2_modules_list* result);
 struct mb2_memory_map multiboot2_get_memory_regions(uint32_t mb2_info);
 
 #endif // MULTIBOOT2_H
