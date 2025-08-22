@@ -2,3 +2,8 @@
 *.elf
 *.iso
 /build/
+
+.*
+!.gitignore
+!.gitattributes
+!.github/

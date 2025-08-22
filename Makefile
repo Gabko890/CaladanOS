@@ -35,7 +35,7 @@ DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers
 DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
 OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS)
 
-CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_INC_DIR) -I$(DRIVERS_INC_DIR)
+CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_INC_DIR) -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
 
 .PHONY: all clean build-x86_64
 
