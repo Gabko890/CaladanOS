@@ -6,6 +6,7 @@
 #include <interrupts/interrupts.h>
 #include <ps2.h>
 #include <pic.h>
+#include <multiboot/multiboot2.h>
 
 void handle_ps2() {
     ps2_handler();
@@ -16,15 +17,10 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     vga_attr(0x0B);
     vga_puts("CaladanOS");
     vga_attr(0x07);
-    vga_puts(" loaded                 \n\n");
+    vga_puts(" loaded        \n\n");
 
-    vga_printf("kernel at: 0x%X\n", (int)&kernel_main);
-
-    vga_printf("multiboot2 info:\n"
-               "    magic: 0x%X\n"
-               "    tables at: 0x%X (physical)\n\n",
-               magic, mb2_info);
-
+    multiboot2_parse(magic, mb2_info);
+    
     extern void setup_page_tables();
     setup_page_tables();
     
@@ -38,7 +34,7 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
         : "rax"
     );
     
-    vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
+    vga_printf("\ncr3 chnged to: 0x%X\n", cr3_value);
     
     extern void irq1_handler;
     
