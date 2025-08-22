@@ -1,47 +1,57 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include <paging.h>
+#define PTE_PRESENT 0x1
+#define PTE_RW      0x2
+#define PTE_PS      0x80
 
-extern uint64_t page_table_l4[]; // defined in boot32.asm
+#define PML4_PHYS 0x1000
+#define PDPT_PHYS 0x2000
+#define PD_PHYS   0x3000
+#define PT_PHYS   0x4000
 
-static inline void invlpg(void* m) {
-    asm volatile("invlpg (%0)" ::"r"(m) : "memory");
+#define KERNEL_VA 0xFFFF800000000000ULL
+
+
+void* memset (void *dest, register int val, register size_t len)
+{
+  register unsigned char *ptr = (unsigned char*)dest;
+  while (len-- > 0)
+    *ptr++ = val;
+  return dest;
 }
 
-void map_page(void* virt, void* phys, uint64_t flags) {
-    uint64_t vaddr = (uint64_t)virt;
-    uint64_t paddr = (uint64_t)phys;
+void setup_page_tables() {
+    uint64_t *pml4 = (uint64_t*)PML4_PHYS;
+    uint64_t *pdpt = (uint64_t*)PDPT_PHYS;
+    uint64_t *pd   = (uint64_t*)PD_PHYS;
+    uint64_t *pt   = (uint64_t*)PT_PHYS;
 
-    // Walk L4 -> L3 -> L2
-    uint64_t l4_index = (vaddr >> 39) & 0x1FF;
-    uint64_t l3_index = (vaddr >> 30) & 0x1FF;
-    uint64_t l2_index = (vaddr >> 21) & 0x1FF;
+    memset(pml4,0,4096);
+    memset(pdpt,0,4096);
+    memset(pd,0,4096);
+    memset(pt,0,4096);
 
-    uint64_t* l3 = (uint64_t*)(page_table_l4[l4_index] & ~0xFFFULL);
-    if (!l3) return;
-    uint64_t* l2 = (uint64_t*)(l3[l3_index] & ~0xFFFULL);
-    if (!l2) return;
+    /********** 1. Identity map first 2 MiB (PD entry, PS=1) **********/
+    pd[0] = 0x00000000 | PTE_PRESENT | PTE_RW | PTE_PS;
+    pdpt[0] = PD_PHYS | PTE_PRESENT | PTE_RW;
+    pml4[0] = PDPT_PHYS | PTE_PRESENT | PTE_RW;
 
-    // Map using 2MiB huge page
-    l2[l2_index] = (paddr & ~0x1FFFFFULL) | flags | PAGE_PRESENT | PAGE_WRITABLE | PAGE_HUGE;
+    /********** 2. Higher-half kernel mapping to same physical memory **********/
+    /* Compute indices for KERNEL_VA */
+    int pml4_index = (KERNEL_VA >> 39) & 0x1FF;
+    int pdpt_index = (KERNEL_VA >> 30) & 0x1FF;
+    int pd_index   = (KERNEL_VA >> 21) & 0x1FF;
+    int pt_index   = (KERNEL_VA >> 12) & 0x1FF;
 
-    invlpg(virt);
-}
+    /* Link tables for higher-half mapping */
+    pml4[pml4_index] = PDPT_PHYS | PTE_PRESENT | PTE_RW;  // reuse same PDPT
+    pdpt[pdpt_index] = PD_PHYS | PTE_PRESENT | PTE_RW;    // reuse same PD
+    pd[pd_index]     = PT_PHYS | PTE_PRESENT | PTE_RW;    // new PT
 
-void unmap_page(void* virt) {
-    uint64_t vaddr = (uint64_t)virt;
-
-    uint64_t l4_index = (vaddr >> 39) & 0x1FF;
-    uint64_t l3_index = (vaddr >> 30) & 0x1FF;
-    uint64_t l2_index = (vaddr >> 21) & 0x1FF;
-
-    uint64_t* l3 = (uint64_t*)(page_table_l4[l4_index] & ~0xFFFULL);
-    if (!l3) return;
-    uint64_t* l2 = (uint64_t*)(l3[l3_index] & ~0xFFFULL);
-    if (!l2) return;
-
-    l2[l2_index] = 0; // clear entry
-    invlpg(virt);
+    /* Map 4 KiB pages at KERNEL_VA -> phys 0x0 – 0x200000 */
+    for(int i=0; i<512; i++) {
+        pt[i] = (i*0x1000) | PTE_PRESENT | PTE_RW;
+    }
 }
 
