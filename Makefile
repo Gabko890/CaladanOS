@@ -132,20 +132,20 @@ build-x86_64: $(OBJECTS)
 # Build using Docker (from build.sh)
 build:
 	@echo "\033[33mBuilding\033[0m kernel using Docker..."
-	@sudo docker run -it --rm -v "$$PWD":/root/env cld-kernel-env make build-x86_64
+	@docker run -it --rm -v "$$PWD":/root/env cld-kernel-env make build-x86_64
 
 # Build Docker image (from docker/build_docker.sh)
 build-docker:
 	@echo "\033[33mBuilding\033[0m Docker image..."
-	@sudo docker build -t cld-kernel-env -f Dockerfile .
+	@docker build -t cld-kernel-env -f Dockerfile .
 
 # Run kernel in QEMU (from run_qemu.sh)
 qemu:
 	@echo "\033[32mStarting\033[0m QEMU..."
 ifeq ($(QEMU_ISA_DEBUGCON), true)
-	@sudo qemu-system-x86_64 -m 4G -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
+	@qemu-system-x86_64 -m 4G -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
 else
-	@sudo qemu-system-x86_64 -m 4G -cdrom build/kernel.iso
+	@qemu-system-x86_64 -m 4G -cdrom build/kernel.iso
 endif
 
 # Clean build artifacts
