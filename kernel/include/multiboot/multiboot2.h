@@ -96,9 +96,11 @@ struct mb2_memory_map {
     struct mb2_memory_region regions[MB2_MAX_MEMORY_REGIONS];
 };
 
+#define MB2_MAX_MODULES 32
+
 struct mb2_modules_list {
     uint8_t count;
-    struct multiboot_tag_module* modules[32];
+    struct multiboot_tag_module* modules[MB2_MAX_MODULES];
 };
 
 // Function declarations
