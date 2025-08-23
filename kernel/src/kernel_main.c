@@ -8,6 +8,8 @@
 #include <pic.h>
 #include <multiboot/multiboot2.h>
 
+#include <ram_manager/ram_manager.h>
+
 static struct mb2_modules_list g_modules;
 
 void handle_ps2() {
@@ -28,7 +30,10 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     multiboot2_print_basic_info(mb2_info);
     //multiboot2_print_memory_map(mb2_info);
 
-    //multiboot2_get_modules(mb2_info, &g_modules);
+
+    struct mb2_memory_map m = {0};
+    multiboot2_get_modules(mb2_info, &g_modules);
+    vga_printf("ramtable will be placed at: 0x%X\n", init_ram_manager(g_modules, m));
     //vga_printf("Found %u modules, ramfs '%s' at 0x%X-0x%X\n", g_modules.count, g_modules.modules[0]->cmdline, g_modules.modules[0]->mod_start, g_modules.modules[0]->mod_end);
 
     extern void setup_page_tables();
