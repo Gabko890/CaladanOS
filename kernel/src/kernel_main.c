@@ -21,13 +21,15 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
 
     multiboot2_parse(magic, mb2_info);
     
+    /*
     volatile char* ramfs = (volatile char*)0x10f000; // temporary hardcoded famfs start
     volatile char* fs_file = ramfs + 0x110;          // just jump over cpio header (newc)
 
-    for (int i = 0; i < 512/*size of cpio module hardcoded*/; i++) {
+    for (int i = 0; i < 512/*size of cpio module hardcoded*//*; i++) {
         vga_putchar(ramfs[i]); // print whole medule
         outb(0xe9, ramfs[i]);  // qemu serial
     }
+    */
 
     extern void setup_page_tables();
     setup_page_tables();
@@ -46,8 +48,21 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     
     extern void irq1_handler();
     
+    volatile uint64_t *low  = (uint64_t*)0x000FF000;
+    volatile uint64_t *high = (uint64_t*)(0xFFFF8000000FF000);
+
+    *low  = 0x123456789ABCDEF0ULL;  // write via identity
+    uint64_t v1 = *high;            // read via higher-half
+
+    *high = 0xCAFEBABEULL;          // write via higher-half
+    uint64_t v2 = *low;             // read via identity
+    //
+
+    vga_printf("maping test:\nlow:  %d\nhigh: %d\nresult %s", *low, *high, *low == *high ? "OK" : "FAIL");
+
+
     // interrupt system (PIC + IDT)
-    interrupts_init();
+    /*interrupts_init();
     vga_printf("Interrupts initialized\n");
     
     register_interrupt_handler(33, &irq1_handler);  // IRQ1 (keyboard) = interrupt 33
@@ -59,7 +74,7 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     vga_printf("Keyboard enabled\n");
 
     interrupts_enable();
-    
+    */ 
     while(1) __asm__ volatile( "nop" );
     
     __asm__ volatile( "hlt" );
