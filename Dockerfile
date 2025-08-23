@@ -6,7 +6,7 @@ RUN apt-get install -y nasm
 RUN apt-get install -y xorriso
 RUN apt-get install -y grub-pc-bin
 RUN apt-get install -y grub-common
-RUn apt-get install -y cpio
+RUN apt-get install -y cpio
 
 VOLUME /root/env
 WORKDIR /root/env
