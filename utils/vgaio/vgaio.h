@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stdarg.h>
 
+#define VGA_HEIGHT 25
+#define VGA_WIDTH  80
+
 typedef struct {
     uint8_t x;
     uint8_t y;

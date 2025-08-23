@@ -18,8 +18,12 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     vga_puts("CaladanOS");
     vga_attr(0x07);
     vga_puts(" loaded        \n\n");
+    
+    extern char _end;
+    vga_printf("kernel at: 0x%X - 0x%X\n", (int)&kernel_main, &_end);
 
-    multiboot2_parse(magic, mb2_info); 
+    multiboot2_parse(magic, mb2_info);
+    multiboot2_print_basic_info(mb2_info);
     multiboot2_print_memory_map(mb2_info);
 
     /*
@@ -45,22 +49,9 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
         : "rax"
     );
     
-    vga_printf("\ncr3 chnged to: 0x%X\n", cr3_value);
+    vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
     
     extern void irq1_handler();
-    
-    volatile uint64_t *low  = (uint64_t*)0x000FF000;
-    volatile uint64_t *high = (uint64_t*)(0xFFFF8000000FF000);
-
-    *low  = 0x123456789ABCDEF0ULL;  // write via identity
-    uint64_t v1 = *high;            // read via higher-half
-
-    *high = 0xCAFEBABEULL;          // write via higher-half
-    uint64_t v2 = *low;             // read via identity
-    //
-
-    vga_printf("maping test:\nlow:  %d\nhigh: %d\nresult %s", *low, *high, *low == *high ? "OK" : "FAIL");
-
 
     // interrupt system (PIC + IDT)
     /*interrupts_init();

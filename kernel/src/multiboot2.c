@@ -56,7 +56,7 @@ void multiboot2_print_modules(uint32_t mb2_info) {
     struct multiboot_tag *tag;
     int module_count = 0;
     
-    vga_printf("\n=== Loaded Modules ===\n");
+    vga_printf("=== Loaded Modules ===\n");
     
     for (tag = (struct multiboot_tag*)(uintptr_t)(mb2_info + 8);
          tag->type != MULTIBOOT_TAG_TYPE_END;
@@ -80,7 +80,7 @@ void multiboot2_print_modules(uint32_t mb2_info) {
     } else {
         vga_printf("Total modules: %d\n", module_count);
     }
-    vga_printf("======================\n\n");
+    vga_printf("======================\n");
 }
 
 struct multiboot_tag_mmap* multiboot2_get_memory_map(uint32_t mb2_info) {
@@ -154,8 +154,8 @@ void multiboot2_print_memory_map(uint32_t mb2_info) {
         vga_printf(" %luKB %s\n", size_kb, multiboot2_memory_type_to_string(entry->type));
     }
     
-    vga_printf("\nTotal entries: %zu\n", num_entries);
-    vga_printf("==================\n\n");
+    vga_printf("Total entries: %zu\n", num_entries);
+    vga_printf("==================\n");
 }
 
 struct mb2_modules_list multiboot2_get_modules(uint32_t mb2_info) {
