@@ -21,6 +21,14 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
 
     multiboot2_parse(magic, mb2_info);
     
+    volatile char* ramfs = (volatile char*)0x10b000; // temporary hardcoded famfs start
+    volatile char* fs_file = ramfs + 0x110;          // just jump over cpio header (newc)
+
+    for (int i = 0; i < 512/*size of cpio module hardcoded*/; i++) {
+        vga_putchar(ramfs[i]); // print whole medule
+        outb(0xe9, ramfs[i]);  // qemu serial
+    }
+
     extern void setup_page_tables();
     setup_page_tables();
     
@@ -36,7 +44,7 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     
     vga_printf("\ncr3 chnged to: 0x%X\n", cr3_value);
     
-    extern void irq1_handler;
+    extern void irq1_handler();
     
     // interrupt system (PIC + IDT)
     interrupts_init();
