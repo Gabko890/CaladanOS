@@ -19,8 +19,9 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     vga_attr(0x07);
     vga_puts(" loaded        \n\n");
 
-    multiboot2_parse(magic, mb2_info);
-    
+    multiboot2_parse(magic, mb2_info); 
+    multiboot2_print_memory_map(mb2_info);
+
     /*
     volatile char* ramfs = (volatile char*)0x10f000; // temporary hardcoded famfs start
     volatile char* fs_file = ramfs + 0x110;          // just jump over cpio header (newc)

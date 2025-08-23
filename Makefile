@@ -3,6 +3,9 @@ LD             := x86_64-elf-ld
 CC             := x86_64-elf-gcc
 GRUBMKRESCUE   := grub-mkrescue
 
+# Configuration
+QEMU_ISA_DEBUGCON := true
+
 BOOT_SRC_DIR   := boot/src
 BOOT_INC_DIR   := boot/include
 KERNEL_SRC_DIR := kernel/src
@@ -38,6 +41,10 @@ OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(
 CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib \
                   -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_DIR)/ascii -I$(UTILS_DIR)/portio -I$(UTILS_DIR)/vgaio \
                   -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
+
+ifeq ($(QEMU_ISA_DEBUGCON), true)
+    CFLAGS += -DQEMU_ISA_DEBUGCON
+endif
 
 .PHONY: all clean build-x86_64 mmap build qemu build-docker
 
@@ -108,7 +115,11 @@ build-docker:
 # Run kernel in QEMU (from run_qemu.sh)
 qemu:
 	@echo "Starting QEMU..."
-	sudo qemu-system-x86_64 -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
+ifeq ($(QEMU_ISA_DEBUGCON), true)
+	sudo qemu-system-x86_64 -m 4G -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
+else
+	sudo qemu-system-x86_64 -m 4G -cdrom build/kernel.iso
+endif
 
 # Clean build artifacts
 clean:
