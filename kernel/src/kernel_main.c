@@ -34,7 +34,7 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     struct mb2_memory_map m = {0};
     multiboot2_get_modules(mb2_info, &g_modules);
     multiboot2_get_memory_regions(mb2_info, &m);
-    vga_printf("ramtable will be placed at: 0x%X\n", init_ram_manager(g_modules, m));
+    vga_printf("ramtable placed at: 0x%X\n", init_ram_manager(g_modules, m));
 
     extern void setup_page_tables();
     setup_page_tables();
