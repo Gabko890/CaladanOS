@@ -29,34 +29,34 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     extern char _end;
     vga_printf("kernel at: 0x%lX - 0x%lX\n", (uintptr_t)&kernel_main, (uintptr_t)&_end);
 
-    vga_printf("bootloader provided magic: %X\n", magic);
+    vga_printf("bootloader magic: 0x%X\n", magic);
 
     multiboot2_parse(magic, mb2_info);
     multiboot2_print_basic_info(mb2_info);
     //multiboot2_print_memory_map(mb2_info);
     multiboot2_print_modules(mb2_info);
 
-    //struct mb2_memory_map m = {0};
-    //multiboot2_get_modules(mb2_info, &g_modules);
-    //multiboot2_get_memory_regions(mb2_info, &m);
+    struct mb2_memory_map m = {0};
+    multiboot2_get_modules(mb2_info, &g_modules);
+    multiboot2_get_memory_regions(mb2_info, &m);
     //vga_printf("ramtable placed at: 0x%X\n", init_ram_manager(g_modules, m));
 
     extern void setup_page_tables();
     setup_page_tables();
     
-    //unsigned long cr3_value = 0x1000;
+    unsigned long cr3_value = 0x10000;
 
-    //__asm__ volatile (
-    //    "mov %0, %%rax\n\t"
-    //    "mov %%rax, %%cr3"
-    //    :
-    //    : "r"(cr3_value)
-    //    : "rax"
-    //);
+    __asm__ volatile (
+        "mov %0, %%cr3\n\t"
+        "invlpg (%%rip)"
+        :
+        : "r"(cr3_value)
+        : "memory"
+    );
     
     //vga_printf("test section at: 0x%llx\n", &test_var);
 
-    //vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
+    vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
     
     
     extern void irq1_handler();
