@@ -1,149 +1,167 @@
-global start
-global page_table_l4
-global multiboot_magic
-global multiboot_info
+; boot32.asm — 32-bit stub: build paging for identity + higher half, enable long mode, far-jump to 64-bit stub
+; assemble: nasm -felf64 boot32.asm -o boot32.o   (elf64 obj is fine; we emit 32-bit code with BITS 32)
+; entry: _start  (placed in low .boot.text by linker.ld)
 
-extern long_mode_start
+BITS 32
+default rel
 
-section .text
-bits 32
-start:
-	mov esp, stack_top
+%define KERNEL_PMA         0x00200000
+%define KERNEL_VMA         0xFFFFFFFF80000000
 
-	mov [multiboot_magic], eax
-	mov [multiboot_info], ebx
+%define PML4_BASE          0x00009000
+%define PDPT_LO_BASE       0x0000A000
+%define PD_LO_BASE         0x0000B000
+%define PDPT_HI_BASE       0x0000C000
+%define PD_HI_BASE         0x0000D000
 
-	call check_multiboot
-	call check_cpuid
-	call check_long_mode
+%define CR0_PG             (1 << 31)
+%define CR4_PAE            (1 << 5)
+%define EFER_MSR           0xC0000080
+%define EFER_LME           (1 << 8)
 
-	call setup_page_tables
-	call enable_paging
+; how many 2MiB pages to map for the kernel higher-half (increase if your kernel > 2MiB)
+%define KERNEL_2M_PAGES    2
 
-	lgdt [gdt64.pointer]
-	jmp gdt64.code_segment:long_mode_start
+SECTION .boot.text align=16
+global _start
+extern long_mode_entry       ; defined in boot64.asm (also placed in .boot.text at low VMA)
 
-	hlt
+global mb_info
+global mb_magic
 
-multiboot_magic: 
-	dd 0
-multiboot_info:  
-	dd 0
 
-check_multiboot:
-	cmp eax, 0x36d76289
-	jne .no_multiboot
-	ret
-.no_multiboot:
-	mov al, "M"
-	jmp error
+_start:
+    cli
 
-check_cpuid:
-	pushfd
-	pop eax
-	mov ecx, eax
-	xor eax, 1 << 21
-	push eax
-	popfd
-	pushfd
-	pop eax
-	push ecx
-	popfd
-	cmp eax, ecx
-	je .no_cpuid
-	ret
-.no_cpuid:
-	mov al, "C"
-	jmp error
+    mov [mb_magic], eax
+    mov [mb_info], ebx
 
-check_long_mode:
-	mov eax, 0x80000000
-	cpuid
-	cmp eax, 0x80000001
-	jb .no_long_mode
+    ; ---------------------------
+    ; Minimal GDT with 64-bit code & data
+    ; ---------------------------
+    lgdt    [gdt_ptr]
 
-	mov eax, 0x80000001
-	cpuid
-	test edx, 1 << 29
-	jz .no_long_mode
-	
-	ret
-.no_long_mode:
-	mov al, "L"
-	jmp error
+    ; Make sure CS reload happens via far jump later; set data segments now
+    mov     ax, 0x10            ; data selector
+    mov     ds, ax
+    mov     es, ax
+    mov     fs, ax
+    mov     gs, ax
+    mov     ss, ax
 
-setup_page_tables:
-	mov eax, page_table_l3
-	or eax, 0b11 ; present, writable
-	mov [page_table_l4], eax
-	
-	mov eax, page_table_l2
-	or eax, 0b11 ; present, writable
-	mov [page_table_l3], eax
+    ; ---------------------------
+    ; Build paging structures
+    ; ---------------------------
+    call    build_paging
 
-	mov ecx, 0 ; counter
-.loop:
+    ; Load CR3 with PML4 physical
+    mov     eax, PML4_BASE
+    mov     cr3, eax
 
-	mov eax, 0x200000 ; 2MiB
-	mul ecx
-	or eax, 0b10000011 ; present, writable, huge page
-	mov [page_table_l2 + ecx * 8], eax
+    ; Enable PAE
+    mov     eax, cr4
+    or      eax, CR4_PAE
+    mov     cr4, eax
 
-	inc ecx ; increment counter
-	cmp ecx, 512 ; checks if the whole table is mapped
-	jne .loop ; if not, continue
+    ; Enable LME in EFER
+    mov     ecx, EFER_MSR
+    rdmsr
+    or      eax, EFER_LME
+    wrmsr
 
-	ret
+    ; Enable paging
+    mov     eax, cr0
+    or      eax, CR0_PG
+    mov     cr0, eax
 
-enable_paging:
-	; pass page table location to cpu
-	mov eax, page_table_l4
-	mov cr3, eax
+    ; Far jump to 64-bit code segment (selector 0x08) at a LOW address
+    ; long_mode_entry is linked into .boot.text (low, identity mapped)
+    jmp     0x08:long_mode_entry
 
-	; enable PAE
-	mov eax, cr4
-	or eax, 1 << 5
-	mov cr4, eax
+; -------------------------------------------------------
+; Build minimal x86-64 paging:
+; - Identity map first 4 MiB via 2MiB pages (PD_LO[0]=0MiB, PD_LO[1]=2MiB)
+; - Higher-half map KERNEL_PMA.. via PD_HI entries at 0xFFFFFFFF80000000
+; -------------------------------------------------------
+build_paging:
+    ; Zero out tables (we'll just do a quick 4 pages worth)
+    ; Use rep stosd in 32-bit mode over 20 KiB safely (crude but fine)
+    push    edi
+    push    ecx
+    push    eax
 
-	; enable long mode
-	mov ecx, 0xC0000080
-	rdmsr
-	or eax, 1 << 8
-	wrmsr
+    xor     eax, eax
+    mov     edi, PML4_BASE
+    mov     ecx, (5*4096)/4      ; PML4 + two PDPT + two PD = 5 pages
+    rep stosd
 
-	; enable paging
-	mov eax, cr0
-	or eax, 1 << 31
-	mov cr0, eax
+    ; PML4[0] -> PDPT_LO
+    mov     eax, PDPT_LO_BASE | 0x03
+    mov     dword [PML4_BASE + 0*8 + 0], eax
+    mov     dword [PML4_BASE + 0*8 + 4], 0
 
-	ret
+    ; PML4[511] -> PDPT_HI
+    mov     eax, PDPT_HI_BASE | 0x03
+    mov     dword [PML4_BASE + 511*8 + 0], eax
+    mov     dword [PML4_BASE + 511*8 + 4], 0
 
-error:
-	; print "ERR: X" where X is the error code
-	mov dword [0xb8000], 0x4f524f45
-	mov dword [0xb8004], 0x4f3a4f52
-	mov dword [0xb8008], 0x4f204f20
-	mov byte  [0xb800a], al
-	hlt
+    ; PDPT_LO[0] -> PD_LO
+    mov     eax, PD_LO_BASE | 0x03
+    mov     dword [PDPT_LO_BASE + 0*8 + 0], eax
+    mov     dword [PDPT_LO_BASE + 0*8 + 4], 0
 
-section .bss
-align 4096
-page_table_l4:
-	resb 4096
-page_table_l3:
-	resb 4096
-page_table_l2:
-	resb 4096
+    ; Identity map 0..4MiB via two 2MiB pages
+    ; PD_LO[0] = 0MiB (PS=1)
+    mov     eax, (0x00000000) | (1<<7) | 0x003
+    mov     dword [PD_LO_BASE + 0*8 + 0], eax
+    mov     dword [PD_LO_BASE + 0*8 + 4], 0
 
-stack_bottom:
-	resb 4096 * 128
-stack_top:
+    ; PD_LO[1] = 2MiB (covers 0x200000..0x3FFFFF)
+    mov     eax, (0x00200000) | (1<<7) | 0x003
+    mov     dword [PD_LO_BASE + 1*8 + 0], eax
+    mov     dword [PD_LO_BASE + 1*8 + 4], 0
 
-section .rodata
-gdt64:
-	dq 0 ; zero entry
-.code_segment: equ $ - gdt64
-	dq (1 << 43) | (1 << 44) | (1 << 47) | (1 << 53) ; code segment
-.pointer:
-	dw $ - gdt64 - 1 ; length
-	dq gdt64 ; address
+    ; PDPT_HI[510] -> PD_HI  (VMA 0xFFFFFFFF80000000 indexes)
+    mov     eax, PD_HI_BASE | 0x03
+    mov     dword [PDPT_HI_BASE + 510*8 + 0], eax
+    mov     dword [PDPT_HI_BASE + 510*8 + 4], 0
+
+    ; Map kernel: KERNEL_PMA -> KERNEL_VMA via 2MiB pages
+    ; PD_HI[i] = (KERNEL_PMA + i*2MiB) | PS | RW | P
+    mov     esi, KERNEL_2M_PAGES
+    mov     ebx, KERNEL_PMA
+    xor     edi, edi                     ; PD index
+
+.map_loop:
+    mov     eax, ebx
+    or      eax, (1<<7) | 0x003
+    mov     dword [PD_HI_BASE + edi*8 + 0], eax
+    mov     dword [PD_HI_BASE + edi*8 + 4], 0
+    add     ebx, 0x200000
+    inc     edi
+    dec     esi
+    jnz     .map_loop
+
+    pop     eax
+    pop     ecx
+    pop     edi
+    ret
+
+; ---------------------------
+; GDT: 0x00 null, 0x08 64-bit code, 0x10 data
+; ---------------------------
+ALIGN 8
+gdt:
+    dq 0x0000000000000000             ; null
+    dq 0x00AF9A000000FFFF             ; 0x08: 64-bit code (L-bit set in long mode; the exact flags are conventional)
+    dq 0x00AF92000000FFFF             ; 0x10: data
+
+gdt_ptr:
+    dw gdt_end - gdt - 1
+    dd gdt
+gdt_end:
+
+SECTION .boot.data
+align 8
+mb_magic:  dd 0
+mb_info:   dd 0
