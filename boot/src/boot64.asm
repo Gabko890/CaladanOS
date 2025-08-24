@@ -23,8 +23,11 @@ long_mode_entry:
     ; Load the higher-half stack using a full 64-bit immediate
     mov     rsp, __stack_top_hh
 
-    mov     edi, dword [mb_magic]
-    mov     esi, dword [mb_info]
+    ;mov     edi, dword [mb_magic]
+    ;mov     esi, dword [mb_info]
+
+    mov rdi, [mb_magic]
+    mov rsi, [mb_info]
 
     ; Jump to higher-half C entry with a 64-bit absolute jump
     mov     rax, kernel_main

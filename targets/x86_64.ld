@@ -60,7 +60,7 @@ SECTIONS
     *(.bss .bss.*)
     . = ALIGN(16);
     __stack_top_hh = .;             /* symbol for top of higher-half stack */
-    . += 0x4000;                    /* 16 KiB stack */
+    . += 0x10000;                   /* 64 KiB stack */
     __stack_bottom_hh = .;
   }
 
