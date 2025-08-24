@@ -6,6 +6,7 @@
 #include <interrupts/interrupts.h>
 #include <ps2.h>
 #include <pic.h>
+#include <idt.h>
 #include <multiboot/multiboot2.h>
 
 #include <ram_manager/ram_manager.h>
@@ -57,23 +58,53 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
 
     //vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
     
-    /*
+    
     extern void irq1_handler();
 
     // interrupt system (PIC + IDT)
-    interrupts_init();
-    vga_printf("Interrupts initialized\n");
+    vga_printf("Initializing interrupts...\n");
+    vga_printf("About to call pic_init...\n");
+    pic_init();
+    vga_printf("PIC initialized\n");
     
+    vga_printf("Setting up IDT...\n");
+    vga_printf("default_interrupt_handler at: %p\n", (void*)&default_interrupt_handler);
+    
+    // Only set the essential entries we need instead of all 256
+    vga_printf("Setting essential IDT entries...\n");
+    
+    // Set up exception handlers (0-31)
+    for (int i = 0; i < 32; i++) {
+        set_idt_entry(i, &default_interrupt_handler, 0x08, 0x8e);
+    }
+    
+    // Set up PIC interrupt handlers (32-47)
+    for (int i = 32; i < 48; i++) {
+        set_idt_entry(i, &default_interrupt_handler, 0x08, 0x8e);
+    }
+    
+    vga_printf("Essential IDT entries set\n");
+    
+    // Load IDT
+    vga_printf("Loading IDT...\n");
+    idt_load();
+    vga_printf("IDT loaded\n");
+    
+    vga_printf("Registering IRQ1 handler at: %p\n", (void*)irq1_handler);
     register_interrupt_handler(33, &irq1_handler);  // IRQ1 (keyboard) = interrupt 33
+    vga_printf("IRQ1 handler registered\n");
     
+    vga_printf("Initializing PS/2...\n");
     ps2_init();
+    vga_printf("PS/2 initialized\n");
     
+    vga_printf("Enabling IRQ1...\n");
     pic_enable_irq(1);
+    vga_printf("IRQ1 enabled\n");
     
-    vga_printf("Keyboard enabled\n");
-
+    vga_printf("Enabling interrupts globally...\n");
     interrupts_enable();
-    */
+    vga_printf("Interrupts enabled - keyboard should work now\n");
     while(1) __asm__ volatile( "nop" );
     
     __asm__ volatile( "hlt" );

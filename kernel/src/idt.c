@@ -1,10 +1,14 @@
 #include <stdint.h>
 #include <idt.h>
 
-static struct idt_entry idt[IDT_ENTRIES];
+static struct idt_entry idt[IDT_ENTRIES] __attribute__((aligned(16)));
 static struct idt_ptr   idtr;
 
 void set_idt_entry(int vec, void (*handler)(), uint16_t selector, uint8_t flags) {
+    if (vec < 0 || vec >= IDT_ENTRIES) {
+        return; // Bounds check
+    }
+    
     uint64_t addr = (uint64_t)handler;
     idt[vec].offset_low  = addr & 0xFFFF;
     idt[vec].selector    = selector;
