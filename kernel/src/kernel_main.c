@@ -28,7 +28,7 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     
     multiboot2_parse(magic, mb2_info);
     multiboot2_print_basic_info(mb2_info);
-    multiboot2_print_memory_map(mb2_info);
+    //multiboot2_print_memory_map(mb2_info);
 
 
     struct mb2_memory_map m = {0};

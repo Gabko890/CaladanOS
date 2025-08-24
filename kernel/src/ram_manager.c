@@ -24,7 +24,7 @@ uint64_t init_ram_manager(struct mb2_modules_list modules_list, struct mb2_memor
     for (size_t i = 0; i < memory_map.count; i++) {
         struct mb2_memory_region region = memory_map.regions[i];
 
-        if (0 == region.start_addr || region.type != MULTIBOOT_MEMORY_AVAILABLE) 
+        if (region.type != MULTIBOOT_MEMORY_AVAILABLE || 0 == region.start_addr) 
             continue;
         else if (region.start_addr == 0x100000) 
             region.start_addr = first_ram_avialable + sizeof(struct available_map);
@@ -32,15 +32,17 @@ uint64_t init_ram_manager(struct mb2_modules_list modules_list, struct mb2_memor
         map->entries[i].start_addr = region.start_addr;
         map->entries[i].end_addr   = region.end_addr;
         map->entries[i].size       = region.size;
-        map->count++;        
+        map->count++;
+        
+        //vga_printf("available start: 0x%llx end: 0x%llx\n", map->entries[i].start_addr, map->entries[i].end_addr);
     }
 
-    vga_printf("found %d aviable entries in memory map\n", map->count);
+    //vga_printf("found %d aviable entries in memory map\n", map->count);
 
-    for(int i = 0; i < map->count; i++) {
-        vga_printf("at 0x%X ", map->entries[i].start_addr);
-    }
-    vga_putchar('\n');
+    //for(int i = 0; i < map->count; i++) {
+    //    vga_printf("at 0x%X ", map->entries[i].start_addr);
+    //}
+    //vga_putchar('\n');
 
     return first_ram_avialable;
 }

@@ -259,6 +259,8 @@ void multiboot2_get_memory_regions(uint32_t mb2_info, struct mb2_memory_map* out
             }
         }
 
+        //vga_printf("entry at 0x%X - 0x%X %d\n", out_map->regions[i].start_addr, out_map->regions[i].end_addr, out_map->regions[i].type);
+
         out_map->count++;
     }
 }

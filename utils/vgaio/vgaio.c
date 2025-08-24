@@ -117,10 +117,46 @@ static void vga_put_int(int val) {
     }
 }
 
+static void vga_put_ulonglong(unsigned long long val, unsigned int base, bool upper) {
+    char buf[64];
+    const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+    int i = 0;
+
+    if (val == 0) {
+        vga_putchar('0');
+        return;
+    }
+
+    while (val > 0) {
+        buf[i++] = digits[val % base];
+        val /= base;
+    }
+    while (i--) vga_putchar(buf[i]);
+}
+
+static void vga_put_longlong(long long val) {
+    if (val < 0) {
+        vga_putchar('-');
+        vga_put_ulonglong((unsigned long long)(-val), 10, false);
+    } else {
+        vga_put_ulonglong((unsigned long long)val, 10, false);
+    }
+}
+
+static void vga_put_long(long val) {
+    if (val < 0) {
+        vga_putchar('-');
+        vga_put_ulong((unsigned long)(-val), 10, false);
+    } else {
+        vga_put_ulong((unsigned long)val, 10, false);
+    }
+}
+
 int vga_printf(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     int count = 0;
+
     while (*fmt) {
         if (*fmt == '%') {
             fmt++;
@@ -130,67 +166,86 @@ int vga_printf(const char *fmt, ...) {
                     vga_putchar(c);
                     count++;
                 } break;
+
                 case 's': {
                     const char *s = va_arg(args, const char*);
                     while (*s) { vga_putchar(*s++); count++; }
                 } break;
+
                 case 'd':
                 case 'i': {
                     int v = va_arg(args, int);
                     vga_put_int(v);
                 } break;
+
                 case 'u': {
                     unsigned int v = va_arg(args, unsigned int);
                     vga_put_uint(v, 10, false);
                 } break;
+
                 case 'x': {
                     unsigned int v = va_arg(args, unsigned int);
                     vga_put_uint(v, 16, false);
                 } break;
+
                 case 'X': {
                     unsigned int v = va_arg(args, unsigned int);
                     vga_put_uint(v, 16, true);
                 } break;
+
                 case 'l': {
                     fmt++;
-                    if (*fmt == 'u') {
-                        unsigned long v = va_arg(args, unsigned long);
-                        vga_put_ulong(v, 10, false);
-                    } else if (*fmt == 'x') {
-                        unsigned long v = va_arg(args, unsigned long);
-                        vga_put_ulong(v, 16, false);
-                    } else if (*fmt == 'X') {
-                        unsigned long v = va_arg(args, unsigned long);
-                        vga_put_ulong(v, 16, true);
-                    } else {
-                        vga_putchar('%');
-                        vga_putchar('l');
-                        vga_putchar(*fmt);
-                        count += 3;
+                    if (*fmt == 'l') { 
+                        fmt++;
+                        if (*fmt == 'd' || *fmt == 'i') {
+                            long long v = va_arg(args, long long);
+                            vga_put_longlong(v);
+                        } else if (*fmt == 'u') {
+                            unsigned long long v = va_arg(args, unsigned long long);
+                            vga_put_ulonglong(v, 10, false);
+                        } else if (*fmt == 'x') {
+                            unsigned long long v = va_arg(args, unsigned long long);
+                            vga_put_ulonglong(v, 16, false);
+                        } else if (*fmt == 'X') {
+                            unsigned long long v = va_arg(args, unsigned long long);
+                            vga_put_ulonglong(v, 16, true);
+                        }
+                    } else { 
+                        if (*fmt == 'd' || *fmt == 'i') {
+                            long v = va_arg(args, long);
+                            vga_put_long(v);
+                        } else if (*fmt == 'u') {
+                            unsigned long v = va_arg(args, unsigned long);
+                            vga_put_ulong(v, 10, false);
+                        } else if (*fmt == 'x') {
+                            unsigned long v = va_arg(args, unsigned long);
+                            vga_put_ulong(v, 16, false);
+                        } else if (*fmt == 'X') {
+                            unsigned long v = va_arg(args, unsigned long);
+                            vga_put_ulong(v, 16, true);
+                        }
                     }
                 } break;
+
                 case 'z': {
                     fmt++;
                     if (*fmt == 'u') {
                         size_t v = va_arg(args, size_t);
-                        vga_put_ulong(v, 10, false);
+                        vga_put_ulonglong(v, 10, false);
                     } else if (*fmt == 'x') {
                         size_t v = va_arg(args, size_t);
-                        vga_put_ulong(v, 16, false);
+                        vga_put_ulonglong(v, 16, false);
                     } else if (*fmt == 'X') {
                         size_t v = va_arg(args, size_t);
-                        vga_put_ulong(v, 16, true);
-                    } else {
-                        vga_putchar('%');
-                        vga_putchar('z');
-                        vga_putchar(*fmt);
-                        count += 3;
+                        vga_put_ulonglong(v, 16, true);
                     }
                 } break;
+
                 case '%': {
                     vga_putchar('%');
                     count++;
                 } break;
+
                 default:
                     vga_putchar('%');
                     vga_putchar(*fmt);
@@ -198,12 +253,21 @@ int vga_printf(const char *fmt, ...) {
                     break;
             }
         } else {
-            if (*fmt == '\n') { vga_putchar('\n'); count++; }
-            else if (*fmt == '\t') { vga_putchar(' '); vga_putchar(' '); vga_putchar(' '); vga_putchar(' '); count += 4; }
-            else { vga_putchar(*fmt); count++; }
+            if (*fmt == '\n') {
+                vga_putchar('\n');
+                count++;
+            } else if (*fmt == '\t') {
+                vga_putchar(' '); vga_putchar(' ');
+                vga_putchar(' '); vga_putchar(' ');
+                count += 4;
+            } else {
+                vga_putchar(*fmt);
+                count++;
+            }
         }
         fmt++;
     }
+
     va_end(args);
     return count;
 }
