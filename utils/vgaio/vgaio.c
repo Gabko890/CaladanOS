@@ -22,20 +22,58 @@ static void vga_update_cursor(int x, int y) {
 
 //  ===================== output =========================
 //
+static void vga_scroll_up(void) {
+    for (int row = 0; row < VGA_HEIGHT - 1; row++) {
+        for (int col = 0; col < VGA_WIDTH; col++) {
+            int current_pos = (row * VGA_WIDTH + col) * 2;
+            int next_pos = ((row + 1) * VGA_WIDTH + col) * 2;
+            vga_addr[current_pos] = vga_addr[next_pos];
+            vga_addr[current_pos + 1] = vga_addr[next_pos + 1];
+        }
+    }
+    
+    // Clear the last line
+    int last_row_start = (VGA_HEIGHT - 1) * VGA_WIDTH * 2;
+    for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
+        vga_addr[last_row_start + i] = ' ';
+        vga_addr[last_row_start + i + 1] = arrt;
+    }
+}
+
 void vga_putchar(char c) {
     if (c == '\n') {
         cursor.x = 0;
         cursor.y++;
     } else {
+        // Bounds check before calculating position
+        if (cursor.y >= VGA_HEIGHT) {
+            cursor.y = VGA_HEIGHT - 1;
+            vga_scroll_up();
+        }
+        if (cursor.x >= VGA_WIDTH) {
+            cursor.x = 0;
+            cursor.y++;
+            if (cursor.y >= VGA_HEIGHT) {
+                cursor.y = VGA_HEIGHT - 1;
+                vga_scroll_up();
+            }
+        }
+
         int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
         vga_addr[relative_pos] = c;
         vga_addr[relative_pos + 1] = arrt;
         cursor.x++;
 
-        if (cursor.x >= VGA_WIDTH) { // FIX: >= instead of >
+        if (cursor.x >= VGA_WIDTH) {
             cursor.x = 0;
             cursor.y++;
         }
+    }
+
+    // Handle cursor.y overflow after any operation
+    if (cursor.y >= VGA_HEIGHT) {
+        cursor.y = VGA_HEIGHT - 1;
+        vga_scroll_up();
     }
 
     vga_update_cursor(cursor.x, cursor.y);
