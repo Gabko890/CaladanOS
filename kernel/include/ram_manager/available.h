@@ -1,4 +1,4 @@
-#ifdef AVAILABLE_H
+#ifndef AVAILABLE_H
 #define AVALIABLE_H
 
 #include <stdint.h>
