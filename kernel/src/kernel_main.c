@@ -19,23 +19,20 @@ void handle_ps2() {
 
 //__attribute__((section(".test"))) int test_var;
 
-void kernel_main(uint32_t magic, uint32_t mb2_info) {
+void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     vga_attr(0x0B);
     vga_printf("CaladanOS");
     vga_attr(0x07);
     vga_printf(" loaded        \n\n"); // those \n are ignore 
     
-    //extern char kernel_main;   // address of function itself
-    //uintptr_t start = (uintptr_t)&kernel_main;
-    //uintptr_t end   = (uintptr_t)&_end;
-    
     extern char _end;
     vga_printf("kernel at: 0x%lX - 0x%lX\n", (uintptr_t)&kernel_main, (uintptr_t)&_end);
-    //vga_printf("bootloader provided magic: %X", magic);
 
-    //multiboot2_parse(magic, mb2_info);
-    //multiboot2_print_basic_info(mb2_info);
-    //multiboot2_print_memory_map(mb2_info);
+    vga_printf("bootloader provided magic: %X\n", magic);
+
+    multiboot2_parse(magic, mb2_info);
+    multiboot2_print_basic_info(mb2_info);
+    multiboot2_print_memory_map(mb2_info);
 
 
     //struct mb2_memory_map m = {0};
@@ -43,8 +40,8 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     //multiboot2_get_memory_regions(mb2_info, &m);
     //vga_printf("ramtable placed at: 0x%X\n", init_ram_manager(g_modules, m));
 
-    //extern void setup_page_tables();
-    //setup_page_tables();
+    extern void setup_page_tables();
+    setup_page_tables();
     
     //unsigned long cr3_value = 0x1000;
 
@@ -60,10 +57,11 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
 
     //vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
     
+    /*
     extern void irq1_handler();
 
     // interrupt system (PIC + IDT)
-    /*interrupts_init();
+    interrupts_init();
     vga_printf("Interrupts initialized\n");
     
     register_interrupt_handler(33, &irq1_handler);  // IRQ1 (keyboard) = interrupt 33
@@ -75,7 +73,7 @@ void kernel_main(uint32_t magic, uint32_t mb2_info) {
     vga_printf("Keyboard enabled\n");
 
     interrupts_enable();
-    */ 
+    */
     while(1) __asm__ volatile( "nop" );
     
     __asm__ volatile( "hlt" );
