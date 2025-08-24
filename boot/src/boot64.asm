@@ -1,22 +1,31 @@
-global long_mode_start
+; boot64.asm — 64-bit stub in LOW .boot.text (identity-mapped); jumps to higher-half kmain
+
+BITS 64
+default rel
+
+SECTION .boot.text align=16
+global long_mode_entry
 extern kernel_main
-extern multiboot_magic
-extern multiboot_info
+extern __stack_top_hh        ; from linker.ld
 
-section .text
-bits 64
-long_mode_start:
-    ; load null into all data segment registers
-    mov ax, 0
-    mov ss, ax
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    
+extern mb_info
+extern mb_magic
 
-    mov rsi, [multiboot_info]
-    mov rdi, [multiboot_magic]
-	call kernel_main
-    
-    hlt
+long_mode_entry:
+    ; Reload segments (good hygiene in long mode)
+    mov     ax, 0x10
+    mov     ds, ax
+    mov     es, ax
+    mov     ss, ax
+    mov     fs, ax
+    mov     gs, ax
+
+    ; Load the higher-half stack using a full 64-bit immediate
+    mov     rsp, __stack_top_hh
+
+    mov     edi, dword [mb_magic]
+    mov     esi, dword [mb_info]
+
+    ; Jump to higher-half C entry with a 64-bit absolute jump
+    mov     rax, kernel_main
+    jmp     rax

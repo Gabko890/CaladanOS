@@ -23,17 +23,19 @@ static void vga_update_cursor(int x, int y) {
 //  ===================== output =========================
 //
 void vga_putchar(char c) {
-    int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
-
-    if (c != '\n') {
+    if (c == '\n') {
+        cursor.x = 0;
+        cursor.y++;
+    } else {
+        int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
         vga_addr[relative_pos] = c;
         vga_addr[relative_pos + 1] = arrt;
         cursor.x++;
-    }
 
-    if (cursor.x > 80 || c == '\n') {
-        cursor.x = 0;
-        cursor.y++;
+        if (cursor.x >= VGA_WIDTH) { // FIX: >= instead of >
+            cursor.x = 0;
+            cursor.y++;
+        }
     }
 
     vga_update_cursor(cursor.x, cursor.y);
