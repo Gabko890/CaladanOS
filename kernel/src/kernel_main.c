@@ -11,7 +11,7 @@
 
 #include <memory_mapper.h>
 
-void handle_ps2() {
+void handle_ps2(void) {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
 }
@@ -63,18 +63,6 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     }
     vga_printf("pml_4 at: %llx\n", pml4_phys);
     
-    /*
-    vga_printf("=== Available Memory Regions ===\n");
-    for (u8 i = 0; i < minfo.count; i++) {
-        vga_printf("Region %d: 0x%llx - 0x%llx (%llu KB)\n",
-                  i + 1,
-                  minfo.regions[i].addr_start,
-                  minfo.regions[i].addr_end,
-                  minfo.regions[i].size / 1024);
-    }
-    vga_printf("Available regions: %d\n", minfo.count);
-    */
-
     dbg_reg_print(&minfo);
 
     for (uint64_t addr = 0; addr < (16ULL << 30); addr += (2ULL << 20)) {
@@ -105,7 +93,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     vga_printf("cr3 chnged to: 0x%X\n", pml4_phys);
         
-    extern void irq1_handler();
+    extern void irq1_handler(void);
 
     // interrupt system (PIC + IDT)
     pic_init();

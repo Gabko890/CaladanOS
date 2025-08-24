@@ -45,37 +45,6 @@ void vga_putchar(char c) {
     #endif
 }
 
-int vga_puts(const char *string) {
-    if (!string)
-        return 1;
-
-    volatile char *video = (volatile char*)vga_addr;
-
-    while( *string != 0 ) {
-        if (*string != '\n') {
-            int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
-            video[relative_pos] = *string;
-            video[relative_pos + 1] = arrt;
-            cursor.x++;
-        }
-
-        if (cursor.x > 80 || *string == '\n') {
-            cursor.x = 0;
-            cursor.y++;
-        }
-        
-        #ifdef QEMU_ISA_DEBUGCON
-        outb(0xe9, *string);
-        #endif
-        
-        *string++;
-    }
-
-    vga_update_cursor(cursor.x, cursor.y); 
-    
-    return 0;
-}
-
 void vga_attr(u8 _arrt) {
     arrt = _arrt;
 }

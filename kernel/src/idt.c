@@ -4,7 +4,7 @@
 static struct idt_entry idt[IDT_ENTRIES] __attribute__((aligned(16)));
 static struct idt_ptr   idtr;
 
-void set_idt_entry(int vec, void (*handler)(), u16 selector, u8 flags) {
+void set_idt_entry(int vec, void (*handler)(void), u16 selector, u8 flags) {
     if (vec < 0 || vec >= IDT_ENTRIES) {
         return; // Bounds check
     }
