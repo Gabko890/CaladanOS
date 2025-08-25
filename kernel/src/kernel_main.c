@@ -16,14 +16,28 @@ void handle_ps2() {
 }
 
 
+extern char __boot_start_vma[], __boot_end_vma[];
+extern char __boot_start_lma[], __boot_end_lma[];
+extern char __kernel_start_vma[], __kernel_end_vma[];
+extern char __kernel_start_lma[], __kernel_end_lma[];
+
+
 void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     vga_attr(0x0B);
     vga_printf("CaladanOS");
     vga_attr(0x07);
     vga_printf(" loaded        \n\n"); 
     
-    extern char _end;
-    vga_printf("kernel at: 0x%lX - 0x%lX\n", (uintptr_t)&kernel_main, (uintptr_t)&_end);
+    //extern char _end;
+    //vga_printf("kernel at: 0x%lX - 0x%lX\n", __kernel_text_start_vma, __kernel_text_end_vma);
+    
+    vga_printf("Boot stub:\n  VMA=0x%llx = 0x%llx\n  LMA=0x%llx - 0x%llx\n",
+           __boot_start_vma, __boot_end_vma,
+           __boot_start_lma, __boot_end_lma);
+
+    vga_printf("Kernel:\n  VMA=0x%llx - 0x%llx\n  LMA=0x%llx - 0x%llx\n\n",
+           __kernel_start_vma, __kernel_end_vma,
+           __kernel_start_lma, __kernel_end_lma);
 
     vga_printf("bootloader magic: 0x%X\n", magic);
 

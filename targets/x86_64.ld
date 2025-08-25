@@ -24,6 +24,9 @@ SECTIONS
   /* ---------------- Boot stub (identity mapped) ---------------- */
   . = BOOT_VMA;
 
+  __boot_start_vma = .;
+  __boot_start_lma = BOOT_LMA;
+
   .boot.text : AT(BOOT_LMA) {
     KEEP(*(.boot.text*))
   }
@@ -40,8 +43,14 @@ SECTIONS
     KEEP(*(.boot.bss*))
   }
 
+  __boot_end_vma = .;
+  __boot_end_lma = BOOT_LMA + (ADDR(.boot.bss) - BOOT_VMA) + SIZEOF(.boot.bss);
+
   /* ---------------- Main kernel in higher half ---------------- */
   . = KERNEL_VMA;
+
+  __kernel_start_vma = .;
+  __kernel_start_lma = KERNEL_LMA;
 
   .text : AT(KERNEL_LMA + (ADDR(.text) - KERNEL_VMA)) {
     *(.text .text.*)
@@ -64,5 +73,9 @@ SECTIONS
     __stack_bottom_hh = .;
   }
 
-  _end = .; /* end of the kernel */
+  __kernel_end_vma = .;
+  __kernel_end_lma = KERNEL_LMA + (ADDR(.bss) - KERNEL_VMA) + SIZEOF(.bss);
+
+  _end = .; /* legacy end-of-kernel symbol */
 }
+
