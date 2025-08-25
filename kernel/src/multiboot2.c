@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <limits.h>
+#include <string.h>
 
 int multiboot2_parse(uint32_t magic, uint32_t mb2_info) {
     (void)mb2_info;
@@ -205,16 +206,6 @@ void multiboot2_get_memory_regions(uint32_t mb2_info, struct mb2_memory_map* out
     out_map->count = num_entries;
 }*/
 
-void *memcpy(void *dest, const void *src, size_t n) {
-    unsigned char *d = (unsigned char *)dest;
-    const unsigned char *s = (const unsigned char *)src;
-
-    while (n--) {
-        *d++ = *s++;
-    }
-
-    return dest;
-}
 
 void multiboot2_get_memory_regions(uint32_t mb2_info, struct mb2_memory_map* out_map) {
     if (!out_map) return;

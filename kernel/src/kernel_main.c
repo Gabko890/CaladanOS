@@ -9,8 +9,6 @@
 #include <idt.h>
 #include <multiboot/multiboot2.h>
 
-#include <ram_manager/ram_manager.h>
-
 
 void handle_ps2() {
     ps2_handler();
@@ -32,13 +30,15 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     multiboot2_parse(magic, mb2_info);
     multiboot2_print_basic_info(mb2_info);
     //multiboot2_print_memory_map(mb2_info);
-    multiboot2_print_modules(mb2_info);
+    //multiboot2_print_modules(mb2_info);
 
-    struct mb2_memory_map mb_mmap = {0};
+    struct mb2_memory_map mb_mmap;
     struct mb2_modules_list mb_modules;
+    
+
     multiboot2_get_modules(mb2_info, &mb_modules);
     multiboot2_get_memory_regions(mb2_info, &mb_mmap);
-    //vga_printf("ramtable placed at: 0x%X\n", init_ram_manager(g_modules, m));
+    
 
     extern void setup_page_tables();
     setup_page_tables();
