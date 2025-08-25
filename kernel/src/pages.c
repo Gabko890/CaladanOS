@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 #define PTE_PRESENT 0x1ULL
 #define PTE_RW      0x2ULL
@@ -16,13 +17,6 @@
 #define KERNEL_VA       0xFFFFFFFF80000000ULL
 #define KERNEL_PMA      0x00200000ULL
 
-void* memset (void *dest, register int val, register size_t len)
-{
-    register unsigned char *ptr = (unsigned char*)dest;
-    while (len-- > 0)
-        *ptr++ = val;
-    return dest;
-}
 
 void setup_page_tables() {
     uint64_t *pml4     = (uint64_t*)PML4_PHYS;
