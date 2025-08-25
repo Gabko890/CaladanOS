@@ -11,20 +11,18 @@
 
 #include <ram_manager/ram_manager.h>
 
-static struct mb2_modules_list g_modules;
 
 void handle_ps2() {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
 }
 
-//__attribute__((section(".test"))) int test_var;
 
 void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     vga_attr(0x0B);
     vga_printf("CaladanOS");
     vga_attr(0x07);
-    vga_printf(" loaded        \n\n"); // those \n are ignore 
+    vga_printf(" loaded        \n\n"); 
     
     extern char _end;
     vga_printf("kernel at: 0x%lX - 0x%lX\n", (uintptr_t)&kernel_main, (uintptr_t)&_end);
@@ -36,9 +34,10 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     //multiboot2_print_memory_map(mb2_info);
     multiboot2_print_modules(mb2_info);
 
-    struct mb2_memory_map m = {0};
-    multiboot2_get_modules(mb2_info, &g_modules);
-    multiboot2_get_memory_regions(mb2_info, &m);
+    struct mb2_memory_map mb_mmap = {0};
+    struct mb2_modules_list mb_modules;
+    multiboot2_get_modules(mb2_info, &mb_modules);
+    multiboot2_get_memory_regions(mb2_info, &mb_mmap);
     //vga_printf("ramtable placed at: 0x%X\n", init_ram_manager(g_modules, m));
 
     extern void setup_page_tables();
@@ -54,8 +53,6 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
         : "memory"
     );
     
-    //vga_printf("test section at: 0x%llx\n", &test_var);
-
     vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
     
     
