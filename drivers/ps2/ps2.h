@@ -2,7 +2,7 @@
 #define PS2_H
 
 #include <stdbool.h>
-#include <stdint.h>
+#include <cldtypes.h>
 
 void ps2_init(void);
 void ps2_handler(void);

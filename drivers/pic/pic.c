@@ -23,16 +23,16 @@ void pic_init(void) {
     outb(PIC_SLAVE_DATA, 0xFF);  // Slave PIC
 }
 
-void pic_send_eoi(uint8_t irq) {
+void pic_send_eoi(u8 irq) {
     if (irq >= 8) {
         outb(PIC_SLAVE_CMD, PIC_EOI);
     }
     outb(PIC_MASTER_CMD, PIC_EOI);
 }
 
-void pic_enable_irq(uint8_t irq) {
-    uint16_t port;
-    uint8_t value;
+void pic_enable_irq(u8 irq) {
+    u16 port;
+    u8 value;
     
     if (irq < 8) {
         port = PIC_MASTER_DATA;
@@ -45,9 +45,9 @@ void pic_enable_irq(uint8_t irq) {
     outb(port, value);
 }
 
-void pic_disable_irq(uint8_t irq) {
-    uint16_t port;
-    uint8_t value;
+void pic_disable_irq(u8 irq) {
+    u16 port;
+    u8 value;
     
     if (irq < 8) {
         port = PIC_MASTER_DATA;

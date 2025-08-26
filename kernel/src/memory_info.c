@@ -1,5 +1,5 @@
 #include <stddef.h>
-#include <cldint.h>
+#include <cldtypes.h>
 
 #include <vgaio.h>
 #include <multiboot/multiboot2.h>

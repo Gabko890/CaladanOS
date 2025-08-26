@@ -18,7 +18,7 @@ void interrupts_init(void) {
     idt_load();
 }
 
-void register_interrupt_handler(uint8_t interrupt_num, interrupt_handler_t handler) {
+void register_interrupt_handler(u8 interrupt_num, interrupt_handler_t handler) {
     interrupt_handlers[interrupt_num] = handler;
     set_idt_entry(interrupt_num, handler, 0x08, 0x8e);
 }
