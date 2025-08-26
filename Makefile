@@ -41,7 +41,7 @@ OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(
 UTILS_SUBDIRS  := $(shell find $(UTILS_DIR) -type d)
 UTILS_INCLUDES := $(addprefix -I, $(UTILS_SUBDIRS))
 
-CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -nostdlib \
+CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
                   -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) $(UTILS_INCLUDES) \
                   -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
 

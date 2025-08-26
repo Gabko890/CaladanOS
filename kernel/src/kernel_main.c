@@ -23,9 +23,6 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     vga_attr(0x07);
     vga_printf(" loaded        \n\n"); 
     
-    //extern char _end;
-    //vga_printf("kernel at: 0x%lX - 0x%lX\n", __kernel_text_start_vma, __kernel_text_end_vma);
-    
     vga_printf("Boot stub:\n  VMA=0x%llx = 0x%llx\n  LMA=0x%llx - 0x%llx\n",
            __boot_start_vma, __boot_end_vma,
            __boot_start_lma, __boot_end_lma);
@@ -39,7 +36,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     multiboot2_parse(magic, mb2_info);
     multiboot2_print_basic_info(mb2_info);
     multiboot2_print_memory_map(mb2_info);
-    multiboot2_print_modules(mb2_info);
+    //multiboot2_print_modules(mb2_info);
 
     struct mb2_memory_map mb_mmap;
     struct mb2_modules_list mb_modules;
@@ -47,7 +44,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     multiboot2_get_modules(mb2_info, &mb_modules);
     multiboot2_get_memory_regions(mb2_info, &mb_mmap);
     
-    get_memory_info(&mb_mmap, &mb_modules, NULL);
+    struct memory_info minfo;
+    get_memory_info(&mb_mmap, &mb_modules, NULL); // passing &minfo causes kernel to crash 
 
     /*
     extern void setup_page_tables();
