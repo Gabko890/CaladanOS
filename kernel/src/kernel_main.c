@@ -8,19 +8,20 @@
 #include <pic.h>
 #include <idt.h>
 #include <multiboot/multiboot2.h>
-
+#include <memory_info.h>
+#include <ldinfo.h>
 
 void handle_ps2() {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
 }
 
-
+/*
 extern char __boot_start_vma[], __boot_end_vma[];
 extern char __boot_start_lma[], __boot_end_lma[];
 extern char __kernel_start_vma[], __kernel_end_vma[];
 extern char __kernel_start_lma[], __kernel_end_lma[];
-
+*/
 
 void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     vga_attr(0x0B);
@@ -49,11 +50,12 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     struct mb2_memory_map mb_mmap;
     struct mb2_modules_list mb_modules;
     
-
     multiboot2_get_modules(mb2_info, &mb_modules);
     multiboot2_get_memory_regions(mb2_info, &mb_mmap);
     
+    get_memory_info(&mb_mmap, &mb_modules, NULL);
 
+    /*
     extern void setup_page_tables();
     setup_page_tables();
     
@@ -68,7 +70,7 @@ void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
     );
     
     vga_printf("cr3 chnged to: 0x%X\n", cr3_value);
-    
+    */ 
     
     extern void irq1_handler();
 
