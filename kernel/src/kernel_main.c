@@ -16,12 +16,6 @@ void handle_ps2() {
     pic_send_eoi(1); // Send EOI for IRQ1
 }
 
-/*
-extern char __boot_start_vma[], __boot_end_vma[];
-extern char __boot_start_lma[], __boot_end_lma[];
-extern char __kernel_start_vma[], __kernel_end_vma[];
-extern char __kernel_start_lma[], __kernel_end_lma[];
-*/
 
 void kernel_main(volatile u32 magic, u32 mb2_info) {
     vga_attr(0x0B);
@@ -44,8 +38,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
 
     multiboot2_parse(magic, mb2_info);
     multiboot2_print_basic_info(mb2_info);
-    //multiboot2_print_memory_map(mb2_info);
-    //multiboot2_print_modules(mb2_info);
+    multiboot2_print_memory_map(mb2_info);
+    multiboot2_print_modules(mb2_info);
 
     struct mb2_memory_map mb_mmap;
     struct mb2_modules_list mb_modules;
