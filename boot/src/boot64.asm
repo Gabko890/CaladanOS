@@ -22,7 +22,7 @@ long_mode_entry:
 
     ; Load the higher-half stack using a full 64-bit immediate
     mov     rsp, __stack_top_hh
-
+    
     ;mov     edi, dword [mb_magic]
     ;mov     esi, dword [mb_info]
 
