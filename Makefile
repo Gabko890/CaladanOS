@@ -24,6 +24,8 @@ LD             := x86_64-elf-ld
 CC             := x86_64-elf-gcc
 GRUBMKRESCUE   := grub-mkrescue
 
+TARGET         := CaladanOS.iso
+
 QEMU_ISA_DEBUGCON := true
 
 BOOT_SRC_DIR   := boot/src
@@ -130,9 +132,9 @@ build-x86_64: $(OBJECTS)
 
 	@cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ISO from: $(ISO_DIR)"
-	@$(GRUBMKRESCUE) -o $(BUILD_DIR)/kernel.iso $(ISO_DIR)
+	@$(GRUBMKRESCUE) -o $(BUILD_DIR)/$(TARGET) $(ISO_DIR)
 	
-	@echo "$(COLOR_GREEN)Build successful.$(COLOR_RESET)\nISO created in: $(BUILD_DIR)/kernel.iso"
+	@echo "$(COLOR_GREEN)Build successful.$(COLOR_RESET)\nISO created in: $(BUILD_DIR)/$(TARGET)"
 	@echo "You can run ISO in QEMU by executing: $(COLOR_YELLOW)make qemu$(COLOR_RESET)"
 
 
@@ -149,9 +151,9 @@ build-docker:
 qemu:
 	@echo "$(COLOR_GREEN)Starting$(COLOR_RESET) QEMU..."
 ifeq ($(QEMU_ISA_DEBUGCON), true)
-	@qemu-system-x86_64 -m 4G -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
 else
-	@qemu-system-x86_64 -m 4G -cdrom build/kernel.iso
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET)
 endif
 
 
