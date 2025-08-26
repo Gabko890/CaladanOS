@@ -23,6 +23,6 @@ struct memory_region {
     u64 addr_end;
     u64 size;
     u16 flags;
-};
+} __attribute__((packed));
 
 #endif

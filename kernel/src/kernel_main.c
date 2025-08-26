@@ -35,7 +35,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
 
     multiboot2_parse(magic, mb2_info);
     multiboot2_print_basic_info(mb2_info);
-    multiboot2_print_memory_map(mb2_info);
+    //multiboot2_print_memory_map(mb2_info);
     //multiboot2_print_modules(mb2_info);
 
     struct mb2_memory_map mb_mmap;
@@ -45,7 +45,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     multiboot2_get_memory_regions(mb2_info, &mb_mmap);
     
     struct memory_info minfo;
-    get_memory_info(&mb_mmap, &mb_modules, NULL); // passing &minfo causes kernel to crash 
+    get_memory_info(&mb_mmap, &mb_modules, &minfo); 
 
     /*
     extern void setup_page_tables();
