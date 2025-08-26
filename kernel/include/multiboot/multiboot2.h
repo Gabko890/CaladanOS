@@ -82,16 +82,10 @@ struct multiboot_tag_mmap {
 #define MB2_MAX_MEMORY_REGIONS 64
 
 // Clean data structures for programmatic access
-struct mb2_memory_region {
-    u64 start_addr;
-    u64 end_addr;
-    u64 size;
-    u32 type;
-};
 
 struct mb2_memory_map {
     size_t count;
-    struct mb2_memory_region regions[MB2_MAX_MEMORY_REGIONS];
+    struct memory_region regions[MB2_MAX_MEMORY_REGIONS];
 };
 
 struct mb2_modules_list {

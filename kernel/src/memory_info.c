@@ -13,9 +13,9 @@ void get_memory_info(
 ) {
     // debug to print avialable memory
     for(u8 i = 0; i < mmap->count; i++) {
-        struct mb2_memory_region current_region = mmap->regions[i];
+        struct memory_region current_region = mmap->regions[i];
         
-        if (MULTIBOOT_MEMORY_AVAILABLE != current_region.type) continue;
+        if (MULTIBOOT_MEMORY_AVAILABLE != current_region.flags) continue;
         vga_printf("region: %d\n", (int)i);
 
     }

@@ -176,35 +176,6 @@ void multiboot2_get_modules(u32 mb2_info, struct mb2_modules_list* result) {
 
 // --- REWORKED: Clean API (memory regions) ---
 // Safe iteration by stepping entry_size; fill the caller-provided result.
-/*
-void multiboot2_get_memory_regions(u32 mb2_info, struct mb2_memory_map* out_map) {
-    if (!out_map) return;
-
-    out_map->count = 0;
-
-    struct multiboot_tag_mmap *mmap_tag = multiboot2_get_memory_map(mb2_info);
-    if (!mmap_tag) {
-        return;
-    }
-
-    size_t num_entries = multiboot2_get_memory_map_entries(mmap_tag);
-    if (num_entries > MB2_MAX_MEMORY_REGIONS) {
-        num_entries = MB2_MAX_MEMORY_REGIONS;
-    }
-    
-    size_t test;
-    for (size_t i = 0; i < num_entries; i++) {
-        struct multiboot_mmap_entry *entry = &mmap_tag->entries[i];
-        out_map->regions[i].start_addr = entry->addr;
-        out_map->regions[i].size       = entry->len;
-        out_map->regions[i].end_addr   = 64; // this ok
-        // entry->addr + entry->len; // asigning this crashes
-        //entry->addr + entry->len - 1; // asigning this crasheas also
-        out_map->regions[i].type       = entry->type;
-    }
-
-    out_map->count = num_entries;
-}*/
 
 
 void multiboot2_get_memory_regions(u32 mb2_info, struct mb2_memory_map* out_map) {
@@ -235,22 +206,21 @@ void multiboot2_get_memory_regions(u32 mb2_info, struct mb2_memory_map* out_map)
         struct multiboot_mmap_entry entry;
         memcpy(&entry, src, sizeof(struct multiboot_mmap_entry));
 
-        out_map->regions[i].start_addr = entry.addr;
+        out_map->regions[i].addr_start = entry.addr;
         out_map->regions[i].size       = entry.len;
-        out_map->regions[i].type       = entry.type;
+        out_map->regions[i].flags      = (u16)entry.type;
 
         if (entry.len == 0) {
-            out_map->regions[i].end_addr = entry.addr;
+            out_map->regions[i].addr_end = entry.addr;
         } else {
             u64 end = entry.addr + entry.len - 1;
             if (end < entry.addr) {
-                out_map->regions[i].end_addr = UINT64_MAX;
+                out_map->regions[i].addr_end = UINT64_MAX;
             } else {
-                out_map->regions[i].end_addr = end;
+                out_map->regions[i].addr_end = end;
             }
         }
 
-        //vga_printf("entry at 0x%X - 0x%X %d\n", out_map->regions[i].start_addr, out_map->regions[i].end_addr, out_map->regions[i].type);
 
         out_map->count++;
     }

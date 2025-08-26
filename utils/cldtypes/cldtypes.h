@@ -1,5 +1,5 @@
-#ifndef CLDINT_H
-#define CLDINT_H
+#ifndef CLDTYPES_H
+#define CLDTYPES_H
 
 #include <stdint.h>
 
@@ -17,5 +17,12 @@ typedef int64_t i64;
 // gcc specific builtin
 typedef __int128 i128;
 typedef unsigned __int128 u128;
+
+struct memory_region {
+    u64 addr_start;
+    u64 addr_end;
+    u64 size;
+    u16 flags;
+};
 
 #endif
