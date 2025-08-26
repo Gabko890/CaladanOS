@@ -1,4 +1,4 @@
-#include <stdint.h>
+#include <cldtypes.h>
 #include <stddef.h>
 
 #include <portio.h>
@@ -23,7 +23,7 @@ extern char __kernel_start_vma[], __kernel_end_vma[];
 extern char __kernel_start_lma[], __kernel_end_lma[];
 */
 
-void kernel_main(volatile uint32_t magic, uint32_t mb2_info) {
+void kernel_main(volatile u32 magic, u32 mb2_info) {
     vga_attr(0x0B);
     vga_printf("CaladanOS");
     vga_attr(0x07);

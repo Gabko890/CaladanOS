@@ -8,16 +8,16 @@
 
 static volatile char* vga_addr = (volatile char*) 0xb8000;
 static Cursor cursor = {0, 0};
-static uint8_t arrt = 0x07;
+static u8 arrt = 0x07;
 
 
 static void vga_update_cursor(int x, int y) {
-	uint16_t pos = y * VGA_WIDTH + x;
+	u16 pos = y * VGA_WIDTH + x;
 
 	outb(0x3D4, 0x0F);
-	outb(0x3D5, (uint8_t) (pos & 0xFF));
+	outb(0x3D5, (u8) (pos & 0xFF));
 	outb(0x3D4, 0x0E);
-	outb(0x3D5, (uint8_t) ((pos >> 8) & 0xFF));
+	outb(0x3D5, (u8) ((pos >> 8) & 0xFF));
 }
 
 //  ===================== output =========================
@@ -76,7 +76,7 @@ int vga_puts(const char *string) {
     return 0;
 }
 
-void vga_attr(uint8_t _arrt) {
+void vga_attr(u8 _arrt) {
     arrt = _arrt;
 }
 

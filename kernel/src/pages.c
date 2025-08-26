@@ -1,4 +1,4 @@
-#include <stdint.h>
+#include <cldtypes.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -19,11 +19,11 @@
 
 
 void setup_page_tables() {
-    uint64_t *pml4     = (uint64_t*)PML4_PHYS;
-    uint64_t *pdpt_lo  = (uint64_t*)PDPT_LO_PHYS;
-    uint64_t *pd_lo    = (uint64_t*)PD_LO_PHYS;
-    uint64_t *pdpt_hi  = (uint64_t*)PDPT_HI_PHYS;
-    uint64_t *pd_hi    = (uint64_t*)PD_HI_PHYS;
+    u64 *pml4     = (u64*)PML4_PHYS;
+    u64 *pdpt_lo  = (u64*)PDPT_LO_PHYS;
+    u64 *pd_lo    = (u64*)PD_LO_PHYS;
+    u64 *pdpt_hi  = (u64*)PDPT_HI_PHYS;
+    u64 *pd_hi    = (u64*)PD_HI_PHYS;
 
     /* Clear all page tables */
     memset(pml4, 0, 4096);

@@ -3,9 +3,9 @@
 
 #include <cldtypes.h>
 
-#define MEMORY_INFO_MAX 32;
-#define MEMORY_INFO_SYSTEM_RAM;
-#define MEMORY_INFO_SYSTEM_FRAMEBUFFER;
+#define MEMORY_INFO_MAX 32
+#define MEMORY_INFO_SYSTEM_RAM
+#define MEMORY_INFO_SYSTEM_FRAMEBUFFER
 
 struct memory_info {
     size_t count;
