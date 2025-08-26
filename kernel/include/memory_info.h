@@ -12,10 +12,6 @@ struct memory_info {
     struct memory_region regions[MEMORY_INFO_MAX];
 } ;//__attribute__((aligned(16)));//__attribute__((packed));
 
-void get_memory_info(
-    struct mb2_memory_map*,
-    struct mb2_modules_list*,
-    struct memory_info*
-);
+struct memory_info get_available_memory(u32 mb2_info);
 
 #endif //  MEMORY_INFO_H
