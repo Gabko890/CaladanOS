@@ -86,12 +86,12 @@ struct multiboot_tag_mmap {
 struct mb2_memory_map {
     size_t count;
     struct memory_region regions[MB2_MAX_MEMORY_REGIONS];
-};
+} __attribute__((packed));
 
 struct mb2_modules_list {
     u8 count;
     struct multiboot_tag_module* modules[MB2_MAX_MODULES];
-};
+} __attribute__((packed));
 
 // Function declarations
 int  multiboot2_parse(u32 magic, u32 mb2_info);
