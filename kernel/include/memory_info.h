@@ -10,7 +10,7 @@
 struct memory_info {
     size_t count;
     struct memory_region regions[MEMORY_INFO_MAX];
-} __attribute__((packed));
+} ;//__attribute__((aligned(16)));//__attribute__((packed));
 
 void get_memory_info(
     struct mb2_memory_map*,
