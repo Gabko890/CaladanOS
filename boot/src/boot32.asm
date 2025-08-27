@@ -33,6 +33,11 @@ extern long_mode_entry
 global mb_info
 global mb_magic
 
+; optionally later:
+; extern handle_error_multiboot
+; extern handle_error_cpuid
+; extern handle_error_longmode
+
 _start:
     cli
 
@@ -41,13 +46,19 @@ _start:
 
     ; load GDT
     lgdt    [gdt_ptr]
-
     mov     ax, 0x10
     mov     ds, ax
     mov     es, ax
     mov     fs, ax
     mov     gs, ax
     mov     ss, ax
+
+    ; ----------------------------
+    ; EARLY ENVIRONMENT CHECKS
+    ; ----------------------------
+    call    check_multiboot
+    call    check_cpuid
+    call    check_long_mode
 
     ; Quick visible marker BEFORE building paging: identity access to VGA
     mov     byte [0x000B8000], 'A'
@@ -99,6 +110,80 @@ _start:
 
     ; Far-jump to 64-bit entry
     jmp     0x08:long_mode_entry
+
+; ------------------------------------------------------------------------
+; CHECKS
+; ------------------------------------------------------------------------
+check_multiboot:
+    ; Check Multiboot magic (passed in EAX at entry)
+    cmp dword [mb_magic], 0x36d76289
+    jne .fail
+    ret
+.fail:
+    mov al, 'M'
+    ; also emit to debug port so QEMU/Bochs sees it even if VGA is not usable
+    out 0xE9, al
+    out 0x80, al
+    jmp error
+
+check_cpuid:
+    ; Detect if CPUID instruction is supported (toggle ID bit in EFLAGS)
+    pushfd
+    pop eax
+    mov ecx, eax
+    xor eax, 1<<21
+    push eax
+    popfd
+    pushfd
+    pop eax
+    push ecx
+    popfd
+    cmp eax, ecx
+    je .fail
+    ret
+.fail:
+    mov al, 'C'
+    out 0xE9, al
+    out 0x80, al
+    jmp error
+
+check_long_mode:
+    ; Check for extended CPUID range and long mode bit in EDX of 0x80000001
+    mov eax, 0x80000000
+    cpuid
+    cmp eax, 0x80000001
+    jb .fail
+    mov eax, 0x80000001
+    cpuid
+    test edx, 1<<29
+    jz .fail
+    ret
+.fail:
+    mov al, 'L'
+    out 0xE9, al
+    out 0x80, al
+    jmp error
+
+; ------------------------------------------------------------------------
+; ERROR HANDLER
+; ------------------------------------------------------------------------
+error:
+    ; print "ERR: X" where X is the error code (M/C/L)
+    ; keep VGA override comments: if VGA mapping not present this may fault,
+    ; but we try identity VGA first (before paging), so this should be safe.
+    mov dword [0xb8000], 0x4f524f45 ; "ERRO"
+    mov dword [0xb8004], 0x4f3a4f52 ; "R: O"
+    mov dword [0xb8008], 0x4f204f20 ; " O "
+    mov byte  [0xb800a], al         ; error code
+    ; also emit to debug ports for remote visibility
+    out 0xE9, al
+    out 0x80, al
+    hlt
+
+    ; later replace with calls to C:
+    ; ; call handle_error_multiboot  ; (comment placeholder)
+    ; ; call handle_error_cpuid
+    ; ; call handle_error_longmode
 
 ; ------------------------------------------------------------------------
 ; build_paging - create PML4, PDPT_LO, 16 PDs to map 0..16GiB with 2MiB pages,
