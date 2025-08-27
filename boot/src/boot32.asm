@@ -1,34 +1,37 @@
-; boot32.asm — 32-bit stub: build paging for identity + higher half, enable long mode, far-jump to 64-bit stub
-; assemble: nasm -felf64 boot32.asm -o boot32.o   (elf64 obj is fine; we emit 32-bit code with BITS 32)
-; entry: _start  (placed in low .boot.text by linker.ld)
-
+; boot32_safe_tables.asm — safer: place page-tables at TABLES_PMA (0x00400000) to avoid overlap,
+; emit debug bytes to ports 0xE9/0x80 to trace progress, identity-map first 16GiB with 2MiB pages,
+; also keep higher-half mapping and VGA override.
 BITS 32
 default rel
 
 %define KERNEL_PMA         0x00200000
 %define KERNEL_VMA         0xFFFFFFFF80000000
 
-%define PML4_BASE          0x00009000
-%define PDPT_LO_BASE       0x0000A000
-%define PD_LO_BASE         0x0000B000
-%define PDPT_HI_BASE       0x0000C000
-%define PD_HI_BASE         0x0000D000
+%define TABLES_PMA         0x00400000    ; use this area for all page-tables (safe, high enough)
+%define TABLES_VMA         0xFFFFFFFF80400000
+
+; We'll place structures starting at TABLES_PMA:
+%define PML4_BASE          (TABLES_PMA + 0x0000)   ; 0x00400000
+%define PDPT_LO_BASE       (TABLES_PMA + 0x1000)   ; 0x00401000
+%define PD_LO_BASE         (TABLES_PMA + 0x2000)   ; start of 16 PDs (each 0x1000): 0x00402000 .. 0x0041F000
+%define PDPT_HI_BASE       (TABLES_PMA + 0x22000)  ; after low PDs (choose safe gap)
+%define PD_HI_BASE         (TABLES_PMA + 0x23000)
+%define PT_HI_BASE         (TABLES_PMA + 0x24000)
 
 %define CR0_PG             (1 << 31)
 %define CR4_PAE            (1 << 5)
 %define EFER_MSR           0xC0000080
 %define EFER_LME           (1 << 8)
 
-; how many 2MiB pages to map for the kernel higher-half (increase if your kernel > 2MiB)
 %define KERNEL_2M_PAGES    2
+%define TABLES_2M_PAGES    1
 
 SECTION .boot.text align=16
 global _start
-extern long_mode_entry       ; defined in boot64.asm (also placed in .boot.text at low VMA)
+extern long_mode_entry
 
 global mb_info
 global mb_magic
-
 
 _start:
     cli
@@ -36,64 +39,97 @@ _start:
     mov [mb_magic], eax
     mov [mb_info], ebx
 
-    ; ---------------------------
-    ; Minimal GDT with 64-bit code & data
-    ; ---------------------------
+    ; load GDT
     lgdt    [gdt_ptr]
 
-    ; Make sure CS reload happens via far jump later; set data segments now
-    mov     ax, 0x10            ; data selector
+    mov     ax, 0x10
     mov     ds, ax
     mov     es, ax
     mov     fs, ax
     mov     gs, ax
     mov     ss, ax
 
-    ; ---------------------------
-    ; Build paging structures
-    ; ---------------------------
+    ; Quick visible marker BEFORE building paging: identity access to VGA
+    mov     byte [0x000B8000], 'A'
+    mov     byte [0x000B8000 + 1], 0x07
+
+    ; build page tables (in memory at TABLES_PMA)
     call    build_paging
 
-    ; Load CR3 with PML4 physical
-    mov     eax, PML4_BASE
-    mov     cr3, eax
+    ; Visible marker AFTER tables are built, BEFORE enabling PAE/CR3
+    mov     byte [0x000B8000], 'B'
+    mov     byte [0x000B8000 + 1], 0x0E
 
-    ; Enable PAE
+    ; enable PAE before loading CR3
     mov     eax, cr4
     or      eax, CR4_PAE
     mov     cr4, eax
 
-    ; Enable LME in EFER
+    ; load CR3 with physical address of PML4 (must be physical)
+    mov     eax, PML4_BASE
+    mov     cr3, eax
+
+    ; enable Long Mode in EFER MSR
     mov     ecx, EFER_MSR
     rdmsr
     or      eax, EFER_LME
     wrmsr
 
-    ; Enable paging
+    ; final visible marker BEFORE enabling paging
+    mov     byte [0x000B8000], 'C'
+    mov     byte [0x000B8000 + 1], 0x1F
+
+    ; enable paging (CR0.PG)
     mov     eax, cr0
     or      eax, CR0_PG
     mov     cr0, eax
 
-    ; Far jump to 64-bit code segment (selector 0x08) at a LOW address
-    ; long_mode_entry is linked into .boot.text (low, identity mapped)
+    ; Now paging is active. Try writing to identity VGA and higher-half VGA (32-bit truncated)
+    mov     byte [0x000B8000], 'D'
+    mov     byte [0x000B8000 + 1], 0x2F
+
+    ; Try write to higher-half virtual address (low 32-bit truncated)
+    mov     eax, 0x800B8000
+    mov     dword [eax], 0x07204444
+
+    ; Emit final debug to ports so remote debugbox can see it
+    mov     al, 'X'
+    out     0xE9, al
+    out     0x80, al
+
+    ; Far-jump to 64-bit entry
     jmp     0x08:long_mode_entry
 
-; -------------------------------------------------------
-; Build minimal x86-64 paging:
-; - Identity map first 4 MiB via 2MiB pages (PD_LO[0]=0MiB, PD_LO[1]=2MiB)
-; - Higher-half map KERNEL_PMA.. via PD_HI entries at 0xFFFFFFFF80000000
-; -------------------------------------------------------
+; ------------------------------------------------------------------------
+; build_paging - create PML4, PDPT_LO, 16 PDs to map 0..16GiB with 2MiB pages,
+; and build high mapping used by kernel: PML4[511] -> PDPT_HI -> PD_HI -> PT_HI
+; Emitting debug bytes to help trace progress.
+; ------------------------------------------------------------------------
 build_paging:
-    ; Zero out tables (we'll just do a quick 4 pages worth)
-    ; Use rep stosd in 32-bit mode over 20 KiB safely (crude but fine)
     push    edi
+    push    esi
     push    ecx
+    push    ebx
+    push    edx
+    push    ebp
     push    eax
+
+    ; Debug: indicate entry to build_paging (port 0xE9)
+    mov     al, '1'
+    out     0xE9, al
+    out     0x80, al
 
     xor     eax, eax
     mov     edi, PML4_BASE
-    mov     ecx, (5*4096)/4      ; PML4 + two PDPT + two PD = 5 pages
+
+    ; zero out the table area: pick safe size: 0x30000 bytes (192 KiB) -> (0x30000/4) dwords
+    mov     ecx, (0x30000/4)
     rep stosd
+
+    ; Debug: cleared table area
+    mov     al, '2'
+    out     0xE9, al
+    out     0x80, al
 
     ; PML4[0] -> PDPT_LO
     mov     eax, PDPT_LO_BASE | 0x03
@@ -105,56 +141,165 @@ build_paging:
     mov     dword [PML4_BASE + 511*8 + 0], eax
     mov     dword [PML4_BASE + 511*8 + 4], 0
 
-    ; PDPT_LO[0] -> PD_LO
-    mov     eax, PD_LO_BASE | 0x03
-    mov     dword [PDPT_LO_BASE + 0*8 + 0], eax
-    mov     dword [PDPT_LO_BASE + 0*8 + 4], 0
+    ; Debug: PML4 entries written
+    mov     al, '3'
+    out     0xE9, al
+    out     0x80, al
 
-    ; Identity map 0..4MiB via two 2MiB pages
-    ; PD_LO[0] = 0MiB (PS=1)
-    mov     eax, (0x00000000) | (1<<7) | 0x003
-    mov     dword [PD_LO_BASE + 0*8 + 0], eax
-    mov     dword [PD_LO_BASE + 0*8 + 4], 0
+    ; PDPT_LO[0..15] -> PD_LO_BASE + i*0x1000 (create 16 PDs)
+    xor     esi, esi            ; i = 0
+.fill_pdpt_lo:
+    mov     eax, PD_LO_BASE
+    mov     ebx, esi
+    shl     ebx, 12            ; ebx = i * 0x1000
+    add     eax, ebx
+    or      eax, 0x03
+    mov     dword [PDPT_LO_BASE + esi*8 + 0], eax
+    mov     dword [PDPT_LO_BASE + esi*8 + 4], 0
+    inc     esi
+    cmp     esi, 16
+    jl      .fill_pdpt_lo
 
-    ; PD_LO[1] = 2MiB (covers 0x200000..0x3FFFFF)
-    mov     eax, (0x00200000) | (1<<7) | 0x003
-    mov     dword [PD_LO_BASE + 1*8 + 0], eax
-    mov     dword [PD_LO_BASE + 1*8 + 4], 0
+    ; Debug: PDPT_LO entries done
+    mov     al, '4'
+    out     0xE9, al
+    out     0x80, al
 
-    ; PDPT_HI[510] -> PD_HI  (VMA 0xFFFFFFFF80000000 indexes)
+    ; Fill each PD (16 PDs) with 512 entries mapping 2MiB pages for identity mapping
+    xor     esi, esi            ; pd index i = 0
+.fill_pds_loop:
+    ; edi = PD_LO_BASE + i*0x1000
+    mov     edi, PD_LO_BASE
+    mov     ebx, esi
+    shl     ebx, 12
+    add     edi, ebx           ; edi points to PD table memory
+
+    ; physical base for this PD = i * 1GiB (i << 30)
+    mov     ebx, esi
+    shl     ebx, 30            ; low 32 bits
+    mov     edx, esi
+    shr     edx, 2             ; high 32 bits = i >> 2
+
+    mov     ecx, 512
+    xor     ebp, ebp           ; offset within PD
+.inner_pd_fill:
+    mov     eax, ebx
+    or      eax, (1<<7) | 0x003
+    mov     dword [edi + ebp + 0], eax
+    mov     dword [edi + ebp + 4], edx
+
+    add     ebx, 0x00200000
+    adc     edx, 0
+
+    add     ebp, 8
+    dec     ecx
+    jnz     .inner_pd_fill
+
+    inc     esi
+    cmp     esi, 16
+    jl      .fill_pds_loop
+
+    ; Debug: low PDs filled
+    mov     al, '5'
+    out     0xE9, al
+    out     0x80, al
+
+    ; ----------------------------------------------------------------
+    ; Setup higher-half mapping
+    ; PDPT_HI[510] -> PD_HI
     mov     eax, PD_HI_BASE | 0x03
     mov     dword [PDPT_HI_BASE + 510*8 + 0], eax
     mov     dword [PDPT_HI_BASE + 510*8 + 4], 0
 
-    ; Map kernel: KERNEL_PMA -> KERNEL_VMA via 2MiB pages
-    ; PD_HI[i] = (KERNEL_PMA + i*2MiB) | PS | RW | P
-    mov     esi, KERNEL_2M_PAGES
-    mov     ebx, KERNEL_PMA
-    xor     edi, edi                     ; PD index
+    ; Create PT for PD_HI[0]
+    mov     eax, PT_HI_BASE | 0x03
+    mov     dword [PD_HI_BASE + 0*8 + 0], eax
+    mov     dword [PD_HI_BASE + 0*8 + 4], 0
 
-.map_loop:
+    ; Debug: high PDPT/PD set
+    mov     al, '6'
+    out     0xE9, al
+    out     0x80, al
+
+    ; Fill PT_HI_BASE entries: each entry maps KERNEL_PMA + idx*4K
+    mov     esi, 0
+    mov     ecx, 512
+    mov     ebx, KERNEL_PMA
+.fill_pt_loop:
+    mov     eax, ebx
+    or      eax, 0x003
+    mov     dword [PT_HI_BASE + esi + 0], eax
+    mov     dword [PT_HI_BASE + esi + 4], 0
+    add     ebx, 0x1000
+    add     esi, 8
+    dec     ecx
+    jnz     .fill_pt_loop
+
+    ; Override PT entry for VGA: index = 0xB8 (184)
+    mov     eax, 0x000B8000
+    or      eax, 0x003
+    mov     dword [PT_HI_BASE + 184*8 + 0], eax
+    mov     dword [PT_HI_BASE + 184*8 + 4], 0
+
+    ; Debug: PT_HI filled and VGA override set
+    mov     al, '7'
+    out     0xE9, al
+    out     0x80, al
+
+    ; Map remaining kernel 2MiB pages (if any)
+    mov     esi, 1
+    mov     ecx, KERNEL_2M_PAGES
+    dec     ecx
+    jz      .skip_kernel_loop
+    mov     ebx, KERNEL_PMA + 0x200000
+.kernel_loop:
     mov     eax, ebx
     or      eax, (1<<7) | 0x003
-    mov     dword [PD_HI_BASE + edi*8 + 0], eax
-    mov     dword [PD_HI_BASE + edi*8 + 4], 0
+    mov     dword [PD_HI_BASE + esi*8 + 0], eax
+    mov     dword [PD_HI_BASE + esi*8 + 4], 0
     add     ebx, 0x200000
-    inc     edi
-    dec     esi
-    jnz     .map_loop
+    inc     esi
+    dec     ecx
+    jnz     .kernel_loop
+.skip_kernel_loop:
+
+    ; Map tables region after kernel entries (for TABLES_PMA if desired)
+    mov     ecx, TABLES_2M_PAGES
+    mov     ebx, TABLES_PMA
+.map_tables_loop:
+    mov     eax, ebx
+    or      eax, (1<<7) | 0x003
+    mov     dword [PD_HI_BASE + esi*8 + 0], eax
+    mov     dword [PD_HI_BASE + esi*8 + 4], 0
+    add     ebx, 0x200000
+    inc     esi
+    dec     ecx
+    jnz     .map_tables_loop
+
+    ; Also place TABLES_PMA into low PD_LO[0] at PD index 2 for convenience (identity)
+    mov     eax, (TABLES_PMA) | (1<<7) | 0x003
+    mov     dword [PD_LO_BASE + 2*8 + 0], eax
+    mov     dword [PD_LO_BASE + 2*8 + 4], 0
+
+    ; Debug: finished build_paging
+    mov     al, '9'
+    out     0xE9, al
+    out     0x80, al
 
     pop     eax
+    pop     ebp
+    pop     edx
+    pop     ebx
     pop     ecx
+    pop     esi
     pop     edi
     ret
 
-; ---------------------------
-; GDT: 0x00 null, 0x08 64-bit code, 0x10 data
-; ---------------------------
 ALIGN 8
 gdt:
-    dq 0x0000000000000000             ; null
-    dq 0x00AF9A000000FFFF             ; 0x08: 64-bit code (L-bit set in long mode; the exact flags are conventional)
-    dq 0x00AF92000000FFFF             ; 0x10: data
+    dq 0x0000000000000000
+    dq 0x00AF9A000000FFFF
+    dq 0x00AF92000000FFFF
 
 gdt_ptr:
     dw gdt_end - gdt - 1
@@ -165,3 +310,4 @@ SECTION .boot.data
 align 8
 mb_magic:  dd 0
 mb_info:   dd 0
+
