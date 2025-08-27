@@ -2,10 +2,11 @@
 #define PS2_H
 
 #include <stdbool.h>
-#include <stdint.h>
+#include <cldtypes.h>
 
 void ps2_init(void);
 void ps2_handler(void);
+u128 ps2_keyarr(void);
 
 // Letters
 #define US_A        0x1E

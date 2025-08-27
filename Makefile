@@ -1,9 +1,31 @@
+ifeq ($(OS), Windows_NT)
+
+DOCKER_RUN := docker run -it --rm -v "$(CURDIR):/root/env" cld-kernel-env
+
+.PHONY: all rundocker
+
+all: rundocker
+
+rundocker:
+	@echo "Building Docker..."
+	@docker build -t cld-kernel-env -f Dockerfile .
+
+	@echo "Running Docker..."
+	@$(DOCKER_RUN) make build-x86_64
+		
+else
+
+COLOR_GREEN    := \033[32m
+COLOR_YELLOW   := \033[93m
+COLOR_RESET    := \033[0m
+
 ASM            := nasm
 LD             := x86_64-elf-ld
 CC             := x86_64-elf-gcc
 GRUBMKRESCUE   := grub-mkrescue
 
-# Configuration
+TARGET         := CaladanOS.iso
+
 QEMU_ISA_DEBUGCON := true
 
 BOOT_SRC_DIR   := boot/src
@@ -38,8 +60,11 @@ DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers
 DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
 OBJECTS        := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS)
 
-CFLAGS         := -ffreestanding -m64 -O2 -Wall -Wextra -nostdlib \
-                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(UTILS_DIR)/ascii -I$(UTILS_DIR)/portio -I$(UTILS_DIR)/vgaio \
+UTILS_SUBDIRS  := $(shell find $(UTILS_DIR) -type d)
+UTILS_INCLUDES := $(addprefix -I, $(UTILS_SUBDIRS))
+
+CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
+                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) $(UTILS_INCLUDES) \
                   -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
 
 ifeq ($(QEMU_ISA_DEBUGCON), true)
@@ -48,80 +73,91 @@ endif
 
 .PHONY: all clean build-x86_64 mmap build qemu build-docker
 
-all: build-x86_64
+all: build-docker build
 
-# Build rules for ASM and C sources
+
 $(BUILD_DIR)/boot/%.o: $(BOOT_SRC_DIR)/%.asm
 	@mkdir -p $(dir $@)
-	$(ASM) -f elf64 $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(ASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/boot/%.o: $(BOOT_SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.asm
 	@mkdir -p $(dir $@)
-	$(ASM) -f elf64 $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(ASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/utils/%.o: $(UTILS_DIR)/%.asm
 	@mkdir -p $(dir $@)
-	$(ASM) -f elf64 $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(ASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/utils/%.o: $(UTILS_DIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/drivers/%.o: $(DRIVERS_SRC_DIR)/%.asm
 	@mkdir -p $(dir $@)
-	$(ASM) -f elf64 $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(ASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/drivers/%.o: $(DRIVERS_SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
-# Main build target
+
 build-x86_64: $(OBJECTS)
 	@mkdir -p $(BUILD_DIR)/kernel
 	@mkdir -p $(ISO_DIR)/boot/grub
-	$(LD) -n -o $(BUILD_DIR)/kernel/kernel.elf -T $(LINKER_SCRIPT) $(OBJECTS)
-	cp $(BUILD_DIR)/kernel/kernel.elf $(ISO_DIR)/boot/kernel.elf
+	@echo "$(COLOR_YELLOW)Linking objects:$(COLOR_RESET) $(OBJECTS)"
+	@$(LD) -n -o $(BUILD_DIR)/kernel/kernel.elf -T $(LINKER_SCRIPT) $(OBJECTS)
+	@cp $(BUILD_DIR)/kernel/kernel.elf $(ISO_DIR)/boot/kernel.elf
 
 	# Create cpio ramfs at root of archive
 	@mkdir -p $(ISO_DIR)/boot
+	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ramfs archive from: $(RAMFS_DIR)"
 	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$(ISO_DIR)/boot/ramfs.cpio)
+	@cpio -itv < $(ISO_DIR)/boot/ramfs.cpio
 
-	cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
-	$(GRUBMKRESCUE) -o $(BUILD_DIR)/kernel.iso $(ISO_DIR)
+	@cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
+	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ISO from: $(ISO_DIR)"
+	@$(GRUBMKRESCUE) -o $(BUILD_DIR)/$(TARGET) $(ISO_DIR)
+	
+	@echo "$(COLOR_GREEN)Build successful.$(COLOR_RESET)\nISO created in: $(BUILD_DIR)/$(TARGET)"
+	@echo "You can run ISO in QEMU by executing: $(COLOR_YELLOW)make qemu$(COLOR_RESET)"
 
-# Generate memory map
-mmap:
-	@echo "Generating memory map..."
-	python3 scripts/generate_mmap.py
 
-# Build using Docker (from build.sh)
 build:
-	@echo "Building kernel using Docker..."
-	sudo docker run -it --rm -v "$$PWD":/root/env cld-kernel-env make
+	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) kernel using Docker..."
+	@docker run -it --rm -v "$$PWD":/root/env cld-kernel-env make build-x86_64
 
-# Build Docker image (from docker/build_docker.sh)
+
 build-docker:
-	@echo "Building Docker image..."
-	sudo docker build -t cld-kernel-env -f Dockerfile .
+	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) Docker image..."
+	@docker build -t cld-kernel-env -f Dockerfile .
 
-# Run kernel in QEMU (from run_qemu.sh)
+
 qemu:
-	@echo "Starting QEMU..."
+	@echo "$(COLOR_GREEN)Starting$(COLOR_RESET) QEMU..."
 ifeq ($(QEMU_ISA_DEBUGCON), true)
-	sudo qemu-system-x86_64 -m 4G -cdrom build/kernel.iso -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
 else
-	sudo qemu-system-x86_64 -m 4G -cdrom build/kernel.iso
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET)
 endif
 
-# Clean build artifacts
+
 clean:
 	rm -rf $(BUILD_DIR)/*
 
+endif
