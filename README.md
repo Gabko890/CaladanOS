@@ -21,4 +21,4 @@ CaladanOS is simple os writen in C99
   Or using different Virtual machine (eg. VirtualBox), ISO is placed in build/CaladnOS.iso
 
 ## Screenshots
-<img width="720" height="400" alt="image" src="https://github.com/user-attachments/assets/c6272597-a75c-49d9-80b6-852d9bbd8cbf" />
+<img width="720" height="400" alt="image" src="https://github.com/user-attachments/assets/baf43ec8-d976-4fde-81b9-f9824a8397eb" />
