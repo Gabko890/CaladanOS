@@ -13,7 +13,6 @@ typedef struct {
 } Cursor;
 
 void vga_putchar(char);
-int  vga_puts(const char*);
 void vga_attr(u8);
 
 int vga_printf(const char*, ...);

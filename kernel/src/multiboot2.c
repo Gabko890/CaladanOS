@@ -107,7 +107,7 @@ static void print_padded_hex(u64 addr) {
     vga_printf("0x%lX", addr);
 }
 
-const char* multiboot2_memory_type_to_string(u32 type) {
+static const char* multiboot2_memory_type_to_string(u32 type) {
     switch (type) {
         case MULTIBOOT_MEMORY_AVAILABLE:        return "Available";
         case MULTIBOOT_MEMORY_RESERVED:         return "Reserved";

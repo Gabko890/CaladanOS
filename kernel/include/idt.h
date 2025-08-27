@@ -18,5 +18,5 @@ struct idt_ptr {
 
 #define IDT_ENTRIES 256
 
-void set_idt_entry(int vec, void (*handler)(), u16 selector, u8 flags);
-void idt_load();
+void set_idt_entry(int vec, void (*handler)(void), u16 selector, u8 flags);
+void idt_load(void);
