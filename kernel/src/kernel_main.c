@@ -10,6 +10,7 @@
 #include <ldinfo.h>
 
 #include <memory_mapper.h>
+#include <cldtest.h>
 
 void handle_ps2(void) {
     ps2_handler();
@@ -42,7 +43,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
            __kernel_start_vma, __kernel_end_vma,
            __kernel_start_lma, __kernel_end_lma);
 
-    vga_printf("bootloader magic: 0x%X\n", magic);
+    // vga_printf("bootloader magic: 0x%X\n", magic);
 
     //multiboot2_parse(magic, mb2_info);
     //multiboot2_print_basic_info(mb2_info);
@@ -53,7 +54,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
 
     struct memory_info minfo = get_available_memory(mb2_info);
     
-    dbg_reg_print(&minfo);
+    // dbg_reg_print(&minfo);
     
     u64 pml4_phys = mm_init(&minfo /*, (void*)0xFFFFFFFF80400000UL*/);
     
@@ -61,11 +62,11 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         vga_printf("kernel map failure 1");
         __asm__ volatile( "cli; hlt" );
     }
-    vga_printf("pml_4 at: %llx\n", pml4_phys);
+    //vga_printf("pml_4 at: %llx\n", pml4_phys);
     
-    dbg_reg_print(&minfo);
+    // dbg_reg_print(&minfo);
 
-    vga_printf("Starting identity mapping...\n");
+    //vga_printf("Starting identity mapping...\n");
     for (uint64_t addr = 0; addr < (16ULL << 30); addr += (2ULL << 20)) {
         if (addr < (4ULL << 20)) vga_printf("Mapping identity: 0x%llx\n", addr);
         if (!mm_map(addr, addr, PTE_RW | PTE_HUGE, PAGE_2M)) {
@@ -86,7 +87,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         }
     }
 
-    vga_printf("About to switch CR3...\n");
+    //vga_printf("About to switch CR3...\n");
 
     __asm__ volatile (
         "mov %0, %%cr3\n\t"
@@ -96,7 +97,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         : "memory"
     );
     
-    vga_printf("cr3 chnged to: 0x%X\n", pml4_phys);
+    //vga_printf("cr3 chnged to: 0x%X\n", pml4_phys);
         
     extern void irq1_handler(void);
 
@@ -121,9 +122,24 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     pic_enable_irq(1);
     
-    vga_printf("Interrupts initialized\n");
+    //vga_printf("Interrupts initialized\n");
     interrupts_enable();
-    vga_printf("Keyboard enabled\n");
+    //vga_printf("Keyboard enabled\n");
+    
+    CLDTEST_INIT();
+    
+    // Run all tests:
+    //CLDTEST_RUN_ALL();
+    
+    // Or run just one specific test:
+    cldtest_run_test("Memory map/unmap test");
+    
+    // Or run just one suite:
+    // cldtest_run_suite("memory_tests");
+    
+    vga_attr(0x07); // Sometimes cursor keeps color of last attr written, 
+                    // but it is probably caused by attr of cell under cursor 
+                    // not being handled right by VGA hw after scroll 
     
     while(1) __asm__ volatile( "nop" );
     
