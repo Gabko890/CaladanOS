@@ -85,7 +85,9 @@ CFLAGS_WITH_TESTS := $(CFLAGS) -DCLDTEST_ENABLED
 
 ifeq ($(QEMU_ISA_DEBUGCON), true)
     CFLAGS += -DQEMU_ISA_DEBUGCON
+		CFLAGS_WITH_TESTS += -DQEMU_ISA_DEBUGCON
 endif
+
 
 .PHONY: all clean build-x86_64 build-x86_64-test build-x86_64-internal test mmap build qemu build-docker
 
