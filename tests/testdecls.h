@@ -17,6 +17,8 @@ extern void malloc_alignment_test(void);
 extern void malloc_large_allocation_test(void);
 extern void malloc_zero_size_test(void);
 extern void memory_system_init_test(void);
+extern void kernel_malloc_test(void);
+extern void userland_malloc_test(void);
 
 #define CLDTEST_INIT() do { \
     cldtest_register_suite("memory_tests", 0); \
@@ -36,6 +38,8 @@ extern void memory_system_init_test(void);
     cldtest_register_test("Large allocation test", malloc_large_allocation_test, "malloc_tests"); \
     cldtest_register_test("Zero size malloc test", malloc_zero_size_test, "malloc_tests"); \
     cldtest_register_test("Memory system init test", memory_system_init_test, "malloc_tests"); \
+    cldtest_register_test("Kernel malloc test", kernel_malloc_test, "malloc_tests"); \
+    cldtest_register_test("Userland malloc test", userland_malloc_test, "malloc_tests"); \
 } while(0)
 
 #endif // TESTDECLS_H

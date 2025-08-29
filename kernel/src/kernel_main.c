@@ -132,9 +132,12 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         __asm__ volatile("cli; hlt");
     }
     
-    // Initialize simple allocator
+    // Initialize allocators after virtual mapping is complete
     simple_malloc_init();
     vga_printf("Simple allocator initialized\n");
+    
+    kmalloc_init(&minfo);
+    vga_printf("Kernel allocators initialized\n");
         
     extern void irq1_handler(void);
 

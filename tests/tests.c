@@ -119,3 +119,37 @@ CLDTEST_WITH_SUITE("Memory system init test", memory_system_init_test, malloc_te
     simple_free(test2);
     simple_free(test3);
 }
+
+CLDTEST_WITH_SUITE("Kernel malloc test", kernel_malloc_test, malloc_tests) {
+    void *ptr = kmalloc(256);
+    vga_printf("Kernel allocation at: 0x%llx\n", (unsigned long long)ptr);
+    assert(ptr != NULL);
+    
+    u64 phys_addr = kmalloc_virt_to_phys(ptr);
+    vga_printf("Physical address: 0x%llx\n", phys_addr);
+    assert(phys_addr != 0);
+    
+    char *data = (char*)ptr;
+    data[0] = 'K'; data[255] = 'M';
+    assert(data[0] == 'K');
+    assert(data[255] == 'M');
+    
+    kfree(ptr);
+}
+
+CLDTEST_WITH_SUITE("Userland malloc test", userland_malloc_test, malloc_tests) {
+    void *ptr = kmalloc_userland(512);
+    vga_printf("Userland allocation at: 0x%llx\n", (unsigned long long)ptr);
+    assert(ptr != NULL);
+    
+    u64 phys_addr = kmalloc_userland_virt_to_phys(ptr);
+    vga_printf("Physical address: 0x%llx\n", phys_addr);
+    assert(phys_addr != 0);
+    
+    char *data = (char*)ptr;
+    data[0] = 'U'; data[511] = 'L';
+    assert(data[0] == 'U');
+    assert(data[511] == 'L');
+    
+    kfree_userland(ptr);
+}
