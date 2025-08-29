@@ -56,26 +56,22 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     // dbg_reg_print(&minfo);
     
-    u64 pml4_phys = mm_init(&minfo /*, (void*)0xFFFFFFFF80400000UL*/);
+    u64 pml4_phys = mm_init(&minfo, 0xFFFFFFFF80400000UL);
     
     if (0x00 == pml4_phys) {
-        vga_printf("kernel map failure 1");
-        __asm__ volatile( "cli; hlt" );
+        vga_printf("memory mapper initialization failed\n");
+        __asm__ volatile("cli; hlt");
     }
-    //vga_printf("pml_4 at: %llx\n", pml4_phys);
-    
-    // dbg_reg_print(&minfo);
 
-    //vga_printf("Starting identity mapping...\n");
+    // Identity mapping - using physical page table access
     for (uint64_t addr = 0; addr < (16ULL << 30); addr += (2ULL << 20)) {
-        if (addr < (4ULL << 20)) vga_printf("Mapping identity: 0x%llx\n", addr);
         if (!mm_map(addr, addr, PTE_RW | PTE_HUGE, PAGE_2M)) {
             vga_printf("identity map failure at 0x%llx\n", addr);
             __asm__ volatile("cli; hlt");
         }
-        if (addr == 0) vga_printf("First identity map succeeded\n");
     }
 
+    // Kernel virtual mapping - using physical page table access
     uint64_t kernel_phys = 0x00200000ULL;   // KERNEL_PMA
     uint64_t kernel_virt = 0xFFFFFFFF80000000ULL; // KERNEL_VMA
     uint64_t kernel_size = 4ULL << 20; // e.g. 4 MiB kernel
@@ -87,17 +83,19 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         }
     }
 
-    //vga_printf("About to switch CR3...\n");
-
+    // Switch to new page tables
     __asm__ volatile (
-        "mov %0, %%cr3\n\t"
-        "invlpg (%%rip)"
+        "mov %0, %%cr3"
         :
         : "r"(pml4_phys)
         : "memory"
     );
-    
-    //vga_printf("cr3 chnged to: 0x%X\n", pml4_phys);
+
+    // Enable virtual access to page tables
+    if (!mm_enable_virtual_tables()) {
+        vga_printf("failed to enable virtual page tables\n");
+        __asm__ volatile("cli; hlt");
+    }
         
     extern void irq1_handler(void);
 
