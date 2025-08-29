@@ -12,7 +12,7 @@
 #include <memory_mapper.h>
 #include <cldtest.h>
 #include <dlmalloc/malloc.h>
-#include <simple_malloc.h>
+#include <kmalloc.h>
 
 void handle_ps2(void) {
     ps2_handler();
@@ -111,33 +111,9 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         __asm__ volatile("cli; hlt");
     }
 
-    // Initialize dlmalloc heap now that virtual mapping is complete
-    vga_printf("About to initialize dlmalloc...\n");
-    
-    // Test heap memory access first
-    volatile char *heap_test = (volatile char*)kernel_heap_virt;
-    *heap_test = 0x42;
-    if (*heap_test != 0x42) {
-        vga_printf("Heap memory test failed\n");
-        __asm__ volatile("cli; hlt");
-    }
-    vga_printf("Heap memory test passed\n");
-    
-    // Check size requirements (needs at least 128*sizeof(size_t) for bookkeeping)
-    size_t min_size = 128 * sizeof(size_t);
-    vga_printf("Heap size: %llu bytes, min required: %llu bytes\n", kernel_heap_size, min_size);
-    
-    if (kernel_heap_size < min_size) {
-        vga_printf("Heap too small for dlmalloc\n");
-        __asm__ volatile("cli; hlt");
-    }
-    
-    // Initialize allocators after virtual mapping is complete
-    simple_malloc_init();
-    vga_printf("Simple allocator initialized\n");
-    
+    // Initialize kmalloc heap now that virtual mapping is complete
     kmalloc_init(&minfo);
-    vga_printf("Kernel allocators initialized\n");
+    vga_printf("Dynamic memory allocator initialized\n");
         
     extern void irq1_handler(void);
 
@@ -166,8 +142,6 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     interrupts_enable();
     vga_printf("Keyboard enabled\n");
     
-    vga_printf("\n=== SYSTEM READY ===\n");
-    
 
     CLDTEST_INIT();
     
@@ -178,6 +152,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     CLDTEST_RUN_SUITE("memory_tests");
     vga_printf("Running malloc tests...\n");
     CLDTEST_RUN_SUITE("malloc_tests");
+    
+    vga_printf("\n=== SYSTEM READY ===\n");
     
     vga_attr(0x07); // Sometimes cursor keeps color of last attr written, 
                     // but it is probably caused by attr of cell under cursor 

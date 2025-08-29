@@ -12,13 +12,16 @@ extern void arithmetic_test(void);
 extern void demo_fail_test(void);
 
 // Memory allocation test functions
-extern void malloc_basic_test(void);
-extern void malloc_alignment_test(void);
-extern void malloc_large_allocation_test(void);
-extern void malloc_zero_size_test(void);
-extern void memory_system_init_test(void);
+extern void kmalloc_basic_test(void);
+extern void kmalloc_alignment_test(void);
+extern void kmalloc_large_allocation_test(void);
+extern void kmalloc_zero_size_test(void);
+extern void kmalloc_free_reuse_test(void);
+extern void krealloc_test(void);
 extern void kernel_malloc_test(void);
 extern void userland_malloc_test(void);
+extern void userland_krealloc_test(void);
+extern void mixed_allocation_test(void);
 
 #define CLDTEST_INIT() do { \
     cldtest_register_suite("memory_tests", 0); \
@@ -33,13 +36,16 @@ extern void userland_malloc_test(void);
     cldtest_register_test("Data types test", types_test, "system_tests"); \
     cldtest_register_test("Arithmetic test", arithmetic_test, "system_tests"); \
     cldtest_register_test("Demo fail test", demo_fail_test, "system_tests"); \
-    cldtest_register_test("Basic malloc test", malloc_basic_test, "malloc_tests"); \
-    cldtest_register_test("Malloc alignment test", malloc_alignment_test, "malloc_tests"); \
-    cldtest_register_test("Large allocation test", malloc_large_allocation_test, "malloc_tests"); \
-    cldtest_register_test("Zero size malloc test", malloc_zero_size_test, "malloc_tests"); \
-    cldtest_register_test("Memory system init test", memory_system_init_test, "malloc_tests"); \
+    cldtest_register_test("Basic kmalloc test", kmalloc_basic_test, "malloc_tests"); \
+    cldtest_register_test("Kmalloc alignment test", kmalloc_alignment_test, "malloc_tests"); \
+    cldtest_register_test("Large allocation test", kmalloc_large_allocation_test, "malloc_tests"); \
+    cldtest_register_test("Zero size malloc test", kmalloc_zero_size_test, "malloc_tests"); \
+    cldtest_register_test("Kmalloc free and reuse test", kmalloc_free_reuse_test, "malloc_tests"); \
+    cldtest_register_test("Krealloc test", krealloc_test, "malloc_tests"); \
     cldtest_register_test("Kernel malloc test", kernel_malloc_test, "malloc_tests"); \
     cldtest_register_test("Userland malloc test", userland_malloc_test, "malloc_tests"); \
+    cldtest_register_test("Userland krealloc test", userland_krealloc_test, "malloc_tests"); \
+    cldtest_register_test("Mixed allocation test", mixed_allocation_test, "malloc_tests"); \
 } while(0)
 
 #endif // TESTDECLS_H
