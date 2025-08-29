@@ -11,6 +11,8 @@
 
 #include <memory_mapper.h>
 #include <cldtest.h>
+#include <dlmalloc/malloc.h>
+#include <simple_malloc.h>
 
 void handle_ps2(void) {
     ps2_handler();
@@ -78,6 +80,18 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
 
     for (uint64_t off = 0; off < kernel_size; off += 0x1000) {
         if (!mm_map(kernel_virt + off, kernel_phys + off, PTE_RW | PTE_PRESENT, PAGE_4K)) {
+            vga_printf("kernel heap map failure\n");
+            __asm__ volatile("cli; hlt");
+        }
+    }
+
+    // Heap virtual mapping (before switching page tables) - use higher physical address
+    uint64_t kernel_heap_phys = 0x01000000ULL;  // 16MB mark - safer location
+    uint64_t kernel_heap_virt = 0xFFFFFFFF90000000ULL;
+    uint64_t kernel_heap_size = 4ULL << 20; // e.g. 4 MiB kernel
+
+    for (uint64_t off = 0; off < kernel_heap_size; off += 0x1000) {
+        if (!mm_map(kernel_heap_virt + off, kernel_heap_phys + off, PTE_RW | PTE_PRESENT, PAGE_4K)) {
             vga_printf("kernel map failure2\n");
             __asm__ volatile("cli; hlt");
         }
@@ -96,6 +110,31 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         vga_printf("failed to enable virtual page tables\n");
         __asm__ volatile("cli; hlt");
     }
+
+    // Initialize dlmalloc heap now that virtual mapping is complete
+    vga_printf("About to initialize dlmalloc...\n");
+    
+    // Test heap memory access first
+    volatile char *heap_test = (volatile char*)kernel_heap_virt;
+    *heap_test = 0x42;
+    if (*heap_test != 0x42) {
+        vga_printf("Heap memory test failed\n");
+        __asm__ volatile("cli; hlt");
+    }
+    vga_printf("Heap memory test passed\n");
+    
+    // Check size requirements (needs at least 128*sizeof(size_t) for bookkeeping)
+    size_t min_size = 128 * sizeof(size_t);
+    vga_printf("Heap size: %llu bytes, min required: %llu bytes\n", kernel_heap_size, min_size);
+    
+    if (kernel_heap_size < min_size) {
+        vga_printf("Heap too small for dlmalloc\n");
+        __asm__ volatile("cli; hlt");
+    }
+    
+    // Initialize simple allocator
+    simple_malloc_init();
+    vga_printf("Simple allocator initialized\n");
         
     extern void irq1_handler(void);
 
@@ -120,20 +159,22 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     pic_enable_irq(1);
     
-    //vga_printf("Interrupts initialized\n");
+    vga_printf("Interrupts initialized\n");
     interrupts_enable();
-    //vga_printf("Keyboard enabled\n");
+    vga_printf("Keyboard enabled\n");
     
+    vga_printf("\n=== SYSTEM READY ===\n");
+    
+
     CLDTEST_INIT();
     
     // Run all tests:
     //CLDTEST_RUN_ALL();
     
-    // Or run just one specific test:
-    CLDTEST_RUN_TEST("Memory map/unmap test");
-    
-    // Or run just one suite:
-    // CLDTEST_RUN__SUITE("memory_tests");
+    vga_printf("Running memory tests...\n");
+    CLDTEST_RUN_SUITE("memory_tests");
+    vga_printf("Running malloc tests...\n");
+    CLDTEST_RUN_SUITE("malloc_tests");
     
     vga_attr(0x07); // Sometimes cursor keeps color of last attr written, 
                     // but it is probably caused by attr of cell under cursor 

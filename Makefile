@@ -50,6 +50,8 @@ ISO_DIR        := $(BUILD_DIR)/iso
 CONF_DIR       := config
 LINKER_SCRIPT  := targets/x86_64.ld
 RAMFS_DIR      := ramfs
+EXTERNAL_DIR   := external
+DLMALLOC_DIR   := external/dlmalloc
 
 BOOT_ASM_SOURCES    := $(shell find $(BOOT_SRC_DIR) -name '*.asm')
 BOOT_C_SOURCES      := $(shell find $(BOOT_SRC_DIR) -name '*.c')
@@ -61,6 +63,7 @@ DRIVERS_ASM_SOURCES := $(shell find $(DRIVERS_SRC_DIR) -name '*.asm')
 DRIVERS_C_SOURCES   := $(shell find $(DRIVERS_SRC_DIR) -name '*.c')
 TESTS_ASM_SOURCES   := $(shell find $(TESTS_SRC_DIR) -name '*.asm')
 TESTS_C_SOURCES     := $(shell find $(TESTS_SRC_DIR) -name '*.c')
+EXTERNAL_C_SOURCES  := $(shell find $(DLMALLOC_DIR) -name '*.c')
 
 BOOT_ASM_OBJECTS    := $(patsubst $(BOOT_SRC_DIR)/%.asm, $(BUILD_DIR)/boot/%.o, $(BOOT_ASM_SOURCES))
 BOOT_C_OBJECTS      := $(patsubst $(BOOT_SRC_DIR)/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_C_SOURCES))
@@ -72,19 +75,24 @@ DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers
 DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
 TESTS_ASM_OBJECTS   := $(patsubst $(TESTS_SRC_DIR)/%.asm, $(BUILD_DIR)/tests/%.o, $(TESTS_ASM_SOURCES))
 TESTS_C_OBJECTS     := $(patsubst $(TESTS_SRC_DIR)/%.c, $(BUILD_DIR)/tests/%.o, $(TESTS_C_SOURCES))
+EXTERNAL_C_OBJECTS  := $(patsubst $(DLMALLOC_DIR)/%.c, $(BUILD_DIR)/external/dlmalloc/%.o, $(EXTERNAL_C_SOURCES))
 CLDTEST_OBJECT      := $(BUILD_DIR)/utils/cldtest/cldtest.o
-
-CORE_OBJECTS   := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) \
-                  $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS)
-ALL_OBJECTS    := $(CORE_OBJECTS) $(TESTS_ASM_OBJECTS) $(TESTS_C_OBJECTS) $(CLDTEST_OBJECT)
-OBJECTS        := $(CORE_OBJECTS)
 
 UTILS_SUBDIRS  := $(shell find $(UTILS_DIR) -type d)
 UTILS_INCLUDES := $(addprefix -I, $(UTILS_SUBDIRS))
+EXTERNAL_SUBDIRS := $(shell find $(EXTERNAL_DIR) -type d)
+EXTERNAL_INCLUDES := $(addprefix -I, $(EXTERNAL_SUBDIRS)) -I external
+
+CORE_OBJECTS   := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) \
+                  $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS) \
+                  $(EXTERNAL_C_OBJECTS)
+ALL_OBJECTS    := $(CORE_OBJECTS) $(TESTS_ASM_OBJECTS) $(TESTS_C_OBJECTS) $(CLDTEST_OBJECT)
+OBJECTS        := $(CORE_OBJECTS)
 
 CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
                   -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) $(UTILS_INCLUDES) \
-                  -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic
+                  -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic $(EXTERNAL_INCLUDES) \
+                  -DMSPACES -DONLY_MSPACES -DUSE_DL_PREFIX
 CFLAGS_WITH_TESTS := $(CFLAGS) -DCLDTEST_ENABLED
 
 ifeq ($(QEMU_ISA_DEBUGCON), true)
@@ -162,6 +170,15 @@ else
 	@$(CC) $(CFLAGS) -c $< -o $@
 endif
 
+$(BUILD_DIR)/external/dlmalloc/%.o: $(DLMALLOC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "$(COLOR_GREEN)Compiling external:$(COLOR_RESET) $<"
+ifdef ENABLE_TESTS
+	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
+else
+	@$(CC) $(CFLAGS) -c $< -o $@
+endif
+
 build-x86_64:
 	@$(MAKE) build-x86_64-internal
 
@@ -203,13 +220,12 @@ build-docker:
 qemu:
 	@echo "$(COLOR_GREEN)Starting$(COLOR_RESET) QEMU..."
 ifeq ($(QEMU_ISA_DEBUGCON), true)
-	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console -no-reboot -no-shutdown
 else
-	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET)
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -no-reboot -no-shutdown
 endif
 
 clean:
 	rm -rf $(BUILD_DIR)/*
 
 endif
-
