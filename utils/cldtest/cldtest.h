@@ -75,21 +75,9 @@ extern u8 current_test_failed;
 // Include test function declarations
 #include "../../tests/testdecls.h"
 
-#define CLDTEST_INIT() do { \
-    cldtest_register_suite("memory_tests", 0); \
-    cldtest_register_suite("string_tests", 0); \
-    cldtest_register_suite("system_tests", 0); \
-    cldtest_register_test("Memory map/unmap test", mm_simple_test, "memory_tests"); \
-    cldtest_register_test("Memory alignment test", mm_alignment_test, "memory_tests"); \
-    cldtest_register_test("String length test", strlen_test, "string_tests"); \
-    cldtest_register_test("String compare test", strcmp_test, "string_tests"); \
-    cldtest_register_test("String copy test", strcpy_test, "string_tests"); \
-    cldtest_register_test("Data types test", types_test, "system_tests"); \
-    cldtest_register_test("Arithmetic test", arithmetic_test, "system_tests"); \
-    cldtest_register_test("Demo fail test", demo_fail_test, "system_tests"); \
-} while(0)
-
 #define CLDTEST_RUN_ALL() cldtest_run_all()
+#define CLDTEST_RUN_TEST(__testname__) cldtest_run_test(__testname__)
+#define CLDTEST_RUN_SUITE(__suitename__) cldtest_run_suite(__suitename__)
 
 void cldtest_register_suite(const char *name, suite_init_func_t init_func);
 void cldtest_register_test(const char *name, test_func_t func, const char *suite_name);
@@ -102,11 +90,13 @@ void cldtest_clear_registry(void);
 #else
 
 // When tests disabled, macros expand to nothing
-#define assert(condition) do { (void)(condition); } while(0)
-#define CLDTEST_SUITE(suite_name) static void cldtest_dummy_##suite_name(void)
-#define CLDTEST_WITH_SUITE(test_name, test_func, suite_name) static void test_func(void)
-#define CLDTEST_INIT() do { } while(0)
-#define CLDTEST_RUN_ALL() do { } while(0)
+#define assert(condition)
+#define CLDTEST_SUITE(suite_name)
+#define CLDTEST_WITH_SUITE(test_name, test_func, suite_name)
+#define CLDTEST_INIT()
+#define CLDTEST_RUN_ALL()
+#define CLDTEST_RUN_TEST(__testname__)
+#define CLDTEST_RUN_SUITE(__suitename__)
 
 #endif
 

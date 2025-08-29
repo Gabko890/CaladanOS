@@ -130,10 +130,10 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     //CLDTEST_RUN_ALL();
     
     // Or run just one specific test:
-    cldtest_run_test("Memory map/unmap test");
+    CLDTEST_RUN_TEST("Memory map/unmap test");
     
     // Or run just one suite:
-    // cldtest_run_suite("memory_tests");
+    // CLDTEST_RUN__SUITE("memory_tests");
     
     vga_attr(0x07); // Sometimes cursor keeps color of last attr written, 
                     // but it is probably caused by attr of cell under cursor 
