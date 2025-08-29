@@ -1,7 +1,7 @@
 #include <cldtest.h>
 #include <memory_mapper.h>
 #include <string.h>
-#include <simple_malloc.h>
+#include <kmalloc.h>
 
 #include <vgaio.h>
 
@@ -32,8 +32,8 @@ CLDTEST_WITH_SUITE("Memory alignment test", mm_alignment_test, memory_tests) {
 
 CLDTEST_SUITE(malloc_tests) {}
 
-CLDTEST_WITH_SUITE("Basic malloc test", malloc_basic_test, malloc_tests) {
-    void *ptr = simple_malloc(64);
+CLDTEST_WITH_SUITE("Basic kmalloc test", kmalloc_basic_test, malloc_tests) {
+    void *ptr = kmalloc(64);
     assert(ptr != NULL);
     
     char *data = (char*)ptr;
@@ -43,13 +43,13 @@ CLDTEST_WITH_SUITE("Basic malloc test", malloc_basic_test, malloc_tests) {
     assert(data[0] == 'T');
     assert(data[63] == 'E');
     
-    simple_free(ptr);
+    kfree(ptr);
 }
 
-CLDTEST_WITH_SUITE("Malloc alignment test", malloc_alignment_test, malloc_tests) {
-    void *ptr1 = simple_malloc(1);
-    void *ptr2 = simple_malloc(1);
-    void *ptr3 = simple_malloc(1);
+CLDTEST_WITH_SUITE("Kmalloc alignment test", kmalloc_alignment_test, malloc_tests) {
+    void *ptr1 = kmalloc(1);
+    void *ptr2 = kmalloc(1);
+    void *ptr3 = kmalloc(1);
     
     assert(ptr1 != NULL);
     assert(ptr2 != NULL);
@@ -63,14 +63,14 @@ CLDTEST_WITH_SUITE("Malloc alignment test", malloc_alignment_test, malloc_tests)
     assert((addr2 & 15) == 0);
     assert((addr3 & 15) == 0);
     
-    simple_free(ptr1);
-    simple_free(ptr2);
-    simple_free(ptr3);
+    kfree(ptr1);
+    kfree(ptr2);
+    kfree(ptr3);
 }
 
-CLDTEST_WITH_SUITE("Large allocation test", malloc_large_allocation_test, malloc_tests) {
+CLDTEST_WITH_SUITE("Large allocation test", kmalloc_large_allocation_test, malloc_tests) {
     vga_printf("Starting large allocation test\n");
-    void *ptr = simple_malloc(1024);
+    void *ptr = kmalloc(1024);
     vga_printf("Allocated 1024 bytes at: 0x%llx\n", (unsigned long long)ptr);
     assert(ptr != NULL);
     
@@ -88,36 +88,54 @@ CLDTEST_WITH_SUITE("Large allocation test", malloc_large_allocation_test, malloc
     }
     
     vga_printf("Pattern verification complete\n");
-    simple_free(ptr);
+    kfree(ptr);
     vga_printf("Large allocation test completed\n");
 }
 
-CLDTEST_WITH_SUITE("Zero size malloc test", malloc_zero_size_test, malloc_tests) {
-    void *ptr = simple_malloc(0);
+CLDTEST_WITH_SUITE("Zero size malloc test", kmalloc_zero_size_test, malloc_tests) {
+    void *ptr = kmalloc(0);
     assert(ptr == NULL);
 }
 
-CLDTEST_WITH_SUITE("Memory system init test", memory_system_init_test, malloc_tests) {
-    void *test1 = simple_malloc(64);
-    void *test2 = simple_malloc(128);
-    void *test3 = simple_malloc(256);
+CLDTEST_WITH_SUITE("Kmalloc free and reuse test", kmalloc_free_reuse_test, malloc_tests) {
+    void *ptr1 = kmalloc(64);
+    assert(ptr1 != NULL);
     
-    assert(test1 != NULL);
-    assert(test2 != NULL);
-    assert(test3 != NULL);
+    char *data1 = (char*)ptr1;
+    data1[0] = 'A';
+    assert(data1[0] == 'A');
     
-    vga_printf("memory system init test\n");
+    kfree(ptr1);
+    
+    void *ptr2 = kmalloc(64);
+    assert(ptr2 != NULL);
+    
+    char *data2 = (char*)ptr2;
+    data2[0] = 'B';
+    assert(data2[0] == 'B');
+    
+    kfree(ptr2);
+}
 
-    char *data = (char*)test1;
-    data[0] = 'H'; data[1] = 'i'; data[2] = '\0';
+CLDTEST_WITH_SUITE("Krealloc test", krealloc_test, malloc_tests) {
+    void *ptr = kmalloc(64);
+    assert(ptr != NULL);
     
-    assert(data[0] == 'H');
-    assert(data[1] == 'i');
-    assert(data[2] == '\0');
+    char *data = (char*)ptr;
+    data[0] = 'R';
+    data[63] = 'T';
     
-    simple_free(test1);
-    simple_free(test2);
-    simple_free(test3);
+    void *new_ptr = krealloc(ptr, 128);
+    assert(new_ptr != NULL);
+    
+    char *new_data = (char*)new_ptr;
+    assert(new_data[0] == 'R');
+    assert(new_data[63] == 'T');
+    
+    new_data[127] = 'X';
+    assert(new_data[127] == 'X');
+    
+    kfree(new_ptr);
 }
 
 CLDTEST_WITH_SUITE("Kernel malloc test", kernel_malloc_test, malloc_tests) {
@@ -152,4 +170,57 @@ CLDTEST_WITH_SUITE("Userland malloc test", userland_malloc_test, malloc_tests) {
     assert(data[511] == 'L');
     
     kfree_userland(ptr);
+}
+
+CLDTEST_WITH_SUITE("Userland krealloc test", userland_krealloc_test, malloc_tests) {
+    void *ptr = kmalloc_userland(256);
+    assert(ptr != NULL);
+    
+    char *data = (char*)ptr;
+    data[0] = 'U';
+    data[255] = 'R';
+    
+    void *new_ptr = krealloc_userland(ptr, 512);
+    assert(new_ptr != NULL);
+    
+    char *new_data = (char*)new_ptr;
+    assert(new_data[0] == 'U');
+    assert(new_data[255] == 'R');
+    
+    new_data[511] = 'E';
+    assert(new_data[511] == 'E');
+    
+    kfree_userland(new_ptr);
+}
+
+CLDTEST_WITH_SUITE("Mixed allocation test", mixed_allocation_test, malloc_tests) {
+    void *kernel_ptr1 = kmalloc(128);
+    void *user_ptr1 = kmalloc_userland(128);
+    void *kernel_ptr2 = kmalloc(64);
+    void *user_ptr2 = kmalloc_userland(256);
+    
+    assert(kernel_ptr1 != NULL);
+    assert(user_ptr1 != NULL);
+    assert(kernel_ptr2 != NULL);
+    assert(user_ptr2 != NULL);
+    
+    char *kdata1 = (char*)kernel_ptr1;
+    char *udata1 = (char*)user_ptr1;
+    char *kdata2 = (char*)kernel_ptr2;
+    char *udata2 = (char*)user_ptr2;
+    
+    kdata1[0] = 'K'; kdata1[127] = '1';
+    udata1[0] = 'U'; udata1[127] = '1';
+    kdata2[0] = 'K'; kdata2[63] = '2';
+    udata2[0] = 'U'; udata2[255] = '2';
+    
+    assert(kdata1[0] == 'K' && kdata1[127] == '1');
+    assert(udata1[0] == 'U' && udata1[127] == '1');
+    assert(kdata2[0] == 'K' && kdata2[63] == '2');
+    assert(udata2[0] == 'U' && udata2[255] == '2');
+    
+    kfree(kernel_ptr1);
+    kfree_userland(user_ptr1);
+    kfree(kernel_ptr2);
+    kfree_userland(user_ptr2);
 }
