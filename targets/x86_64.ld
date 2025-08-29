@@ -27,7 +27,11 @@ SECTIONS
   __boot_start_vma = .;
   __boot_start_lma = BOOT_LMA;
 
-  .boot.text : AT(BOOT_LMA) {
+  .multiboot_header : AT(BOOT_LMA) {
+    KEEP(*(.multiboot_header*))
+  }
+
+  .boot.text : AT(BOOT_LMA + (ADDR(.boot.text) - BOOT_VMA)) {
     KEEP(*(.boot.text*))
   }
 
