@@ -16,6 +16,7 @@ enum { _PAGE_SIZE_4K = 4096, _PAGE_SIZE_2M = 2 * 1024 * 1024 };
 static struct {
     u64 table_phys_base;
     void *table_virt_base;
+    u64 table_virt_base_pending; // Stored for later use
     size_t table_size;
     size_t next_free;
     pte_t *pml4;
@@ -59,18 +60,47 @@ static inline u64 align_up_u64(u64 v, u64 a) {
 }
 
 static size_t compute_required_table_bytes(const struct memory_info *minfo) {
-    if (!minfo) return 2 * 1024 * 1024;
+    if (!minfo) return 32 * 1024 * 1024;
+    
     unsigned long long total_ram = 0ULL;
     for (size_t i = 0; i < minfo->count && i < MEMORY_INFO_MAX; ++i) {
         const struct memory_region *r = &minfo->regions[i];
         if (r->flags & MEMORY_INFO_SYSTEM_RAM) total_ram += r->size;
     }
-    if (total_ram == 0ULL) return 2 * 1024 * 1024;
-    unsigned long long reserve = (total_ram + 511ULL) / 512ULL;
-    const unsigned long long MIN_BYTES = 2ULL * 1024ULL * 1024ULL;
-    const unsigned long long MAX_BYTES = 16ULL * 1024ULL * 1024ULL;
+    if (total_ram == 0ULL) return 32 * 1024 * 1024;
+    
+    // Calculate page table requirements:
+    // For identity mapping of total RAM + kernel mappings + extra mappings
+    // Assume we might need to map up to 2x total RAM for flexibility
+    unsigned long long mappable_space = total_ram * 2;
+    
+    // Calculate worst-case page table pages needed:
+    // - 1 PML4 (covers 512GB each entry)
+    // - PDPTs: mappable_space / (1GB) entries needed
+    // - PDs: mappable_space / (2MB) entries for 2MB pages
+    // Each table is 4KB, with 512 entries
+    
+    unsigned long long gb_512 = 512ULL * 1024ULL * 1024ULL * 1024ULL; // 512GB
+    unsigned long long gb_1 = 1024ULL * 1024ULL * 1024ULL; // 1GB
+    unsigned long long mb_2 = 2ULL * 1024ULL * 1024ULL; // 2MB
+    
+    // Number of page tables needed
+    unsigned long long pml4_count = 1;
+    unsigned long long pdpt_count = (mappable_space + gb_512 - 1) / gb_512;
+    unsigned long long pd_count = (mappable_space + gb_1 - 1) / gb_1;
+    
+    // Total page table pages * 4KB per page
+    unsigned long long table_pages = pml4_count + pdpt_count + pd_count;
+    unsigned long long reserve = table_pages * 4096ULL;
+    
+    // Set reasonable bounds based on system size
+    const unsigned long long MIN_BYTES = 8ULL * 1024ULL * 1024ULL;   // 8MB minimum
+    const unsigned long long MAX_BYTES = 128ULL * 1024ULL * 1024ULL; // 128MB maximum
+    
     if (reserve < MIN_BYTES) reserve = MIN_BYTES;
     if (reserve > MAX_BYTES) reserve = MAX_BYTES;
+    
+    // Align to page boundary
     reserve = (reserve + 0xFFFULL) & ~0xFFFULL;
     return (size_t)reserve;
 }
@@ -97,7 +127,7 @@ static u64 reserve_from_memory_info(struct memory_info *minfo, size_t bytes_requ
     return 0;
 }
 
-u64 mm_init(struct memory_info* minfo) {
+u64 mm_init(struct memory_info* minfo, u64 table_virt_base) {
     if (!minfo) return 0;
     if (mm.initialized) return 0;
     size_t required = compute_required_table_bytes(minfo);
@@ -116,7 +146,32 @@ u64 mm_init(struct memory_info* minfo) {
         return 0;
     }
     mm.pml4 = p;
-    return virt_to_phys((void *)mm.pml4) & 0x000FFFFFFFFFF000ULL;
+    
+    // Calculate PML4 physical address while still using physical addressing
+    u64 pml4_phys = virt_to_phys((void *)mm.pml4) & 0x000FFFFFFFFFF000ULL;
+
+    // Store the table virtual base for later use but keep using physical for now
+    mm.table_virt_base_pending = table_virt_base;
+    mm.table_virt_base = NULL; // Use physical addressing until CR3 switch
+
+    return pml4_phys; // Return PML4 physical address for CR3 switch
+}
+
+// New function to enable virtual page table access after CR3 switch and mappings are set up
+u8 mm_enable_virtual_tables(void) {
+    if (!mm.initialized || !mm.table_virt_base_pending) return 0;
+    
+    // Map the entire page table area to virtual space
+    for (u64 offset = 0; offset < mm.table_size; offset += PAGE_4K) {
+        if (!mm_map(mm.table_virt_base_pending + offset, mm.table_phys_base + offset, PTE_PRESENT | PTE_RW, PAGE_4K)) {
+            return 0;
+        }
+    }
+    
+    // Now switch to virtual addressing
+    mm.table_virt_base = (void*)mm.table_virt_base_pending;
+    
+    return 1; // Success
 }
 
 u8 mm_map(u64 virtual_addr, u64 physical_addr, u64 flags, size_t page_size) {
