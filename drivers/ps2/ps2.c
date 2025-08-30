@@ -22,20 +22,44 @@ void ps2_init(void) {
     inb(0x60);  // Read ACK byte
 }
 
-
 static u128 keyarr = 0;
+static int expecting_extended = 0;
+static ps2_key_callback_t key_callback = NULL;
+
+void ps2_set_key_callback(ps2_key_callback_t callback) {
+    key_callback = callback;
+}
 
 void ps2_handler(void) {
     u8 scancode = inb(0x60);  // Read keyboard data to acknowledge
-    if (scancode != 0xFA) {  // Ignore ACK bytes
-        if (scancode < 0x80) {
-            keyarr |= (u128)1 << scancode;
+    
+    if (scancode == 0xFA) {  // Ignore ACK bytes
+        return;
+    }
+    
+    if (scancode == 0xE0) {  // Extended key prefix
+        expecting_extended = 1;
+        return;
+    }
+    
+    int is_extended = expecting_extended;
+    expecting_extended = 0;
+    
+    int is_pressed = (scancode < 0x80);
+    u8 base_scancode = is_pressed ? scancode : (scancode - 0x80);
+    
+    // Update keyarr for non-extended keys only
+    if (!is_extended) {
+        if (is_pressed) {
+            keyarr |= (u128)1 << base_scancode;
         } else {
-            keyarr &= ~((u128)1 << (scancode - 0x80));
+            keyarr &= ~((u128)1 << base_scancode);
         }
-
-        if (keyarr & ((u128)1 << US_A)) vga_putchar('a');
-        //else if (keyarr << US_B) vga_putchar('b');
+    }
+    
+    // Call callback if registered and key is pressed
+    if (key_callback && is_pressed) {
+        key_callback(base_scancode, is_extended, is_pressed);
     }
 }
 
