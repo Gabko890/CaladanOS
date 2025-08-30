@@ -14,6 +14,13 @@ typedef struct {
 
 void vga_putchar(char);
 void vga_attr(u8);
+void vga_update_cursor(int x, int y);
+void vga_clear_screen(void);
+void vga_clear_line(void);
+void vga_clear_to_eol(void);
+void vga_move_cursor_left(void);
+void vga_move_cursor_right(void);
+void vga_move_cursor_home(void);
 
 int vga_printf(const char*, ...);
 

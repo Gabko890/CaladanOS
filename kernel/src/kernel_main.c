@@ -13,10 +13,60 @@
 #include <cldtest.h>
 #include <dlmalloc/malloc.h>
 #include <kmalloc.h>
+#include <string.h>
+#include "../drivers/cldramfs/cldramfs.h"
+#include "../drivers/cldramfs/shell.h"
+#include "../drivers/cldramfs/tty.h"
+
+// Shell integration globals
+static int shell_active = 0;
+
+// Key handler for shell
+void shell_key_handler(u8 scancode, int is_extended, int is_pressed) {
+    if (shell_active && tty_global_handle_key(scancode, is_extended)) {
+        // Line is ready, process it
+        cldramfs_shell_handle_input();
+    }
+}
 
 void handle_ps2(void) {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
+}
+
+// Function to load CPIO archive from multiboot modules
+static int load_ramfs_from_modules(u32 mb2_info) {
+    struct multiboot_tag *tag;
+    
+    // Look for ramfs.cpio module
+    for (tag = (struct multiboot_tag*)(uintptr_t)(mb2_info + 8);
+         tag->type != MULTIBOOT_TAG_TYPE_END;
+         tag = (struct multiboot_tag*)((u8*)tag + ((tag->size + 7) & ~7))) {
+        
+        if (tag->type == MULTIBOOT_TAG_TYPE_MODULE) {
+            struct multiboot_tag_module *module = (struct multiboot_tag_module*)tag;
+            
+            // Check if this is the ramfs module
+            if (strstr(module->cmdline, "ramfs")) {
+                vga_printf("Loading ramfs from module: %s (%u bytes)\n", 
+                          module->cmdline, module->mod_end - module->mod_start);
+                
+                // Load CPIO archive
+                int result = cldramfs_load_cpio((void*)(uintptr_t)module->mod_start, 
+                                              module->mod_end - module->mod_start);
+                if (result == 0) {
+                    vga_printf("Ramfs loaded successfully\n");
+                    return 0;
+                } else {
+                    vga_printf("Failed to load ramfs: error %d\n", result);
+                    return -1;
+                }
+            }
+        }
+    }
+    
+    vga_printf("No ramfs.cpio module found\n");
+    return -1;
 }
 
 static void dbg_reg_print(struct memory_info* minfo) {
@@ -47,10 +97,9 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
 
     // vga_printf("bootloader magic: 0x%X\n", magic);
 
-    //multiboot2_parse(magic, mb2_info);
-    //multiboot2_print_basic_info(mb2_info);
-    //multiboot2_print_memory_map(mb2_info);
-    //multiboot2_print_modules(mb2_info);
+    multiboot2_parse(magic, mb2_info);
+    // multiboot2_print_basic_info(mb2_info);
+    // multiboot2_print_modules(mb2_info);
 
 
 
@@ -152,14 +201,41 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     CLDTEST_RUN_SUITE("memory_tests");
     vga_printf("Running malloc tests...\n");
     CLDTEST_RUN_SUITE("malloc_tests");
+    vga_printf("Running cldramfs tests...\n");
+    CLDTEST_RUN_SUITE("cldramfs_tests");
+    vga_printf("Running tty tests...\n");
+    CLDTEST_RUN_SUITE("tty_tests");
     
     vga_printf("\n=== SYSTEM READY ===\n");
     
-    vga_attr(0x07); // Sometimes cursor keeps color of last attr written, 
-                    // but it is probably caused by attr of cell under cursor 
-                    // not being handled right by VGA hw after scroll 
+    // Initialize and start ramfs shell
+    vga_printf("Initializing ramfs shell...\n");
     
-    while(1) __asm__ volatile( "nop" );
+    // Set up keyboard callback for shell
+    ps2_set_key_callback(shell_key_handler);
     
-    __asm__ volatile( "hlt" );
+    // Initialize ramfs first
+    cldramfs_init();
+    
+    // Try to load ramfs from multiboot modules
+    if (load_ramfs_from_modules(mb2_info) == 0) {
+        // Initialize shell
+        cldramfs_shell_init();
+        shell_active = 1;
+        
+        //vga_printf("\n=== SHELL ACTIVE ===\n");
+        vga_attr(0x07);
+        
+        // Main shell loop
+        while(cldramfs_shell_is_running()) {
+            __asm__ volatile("hlt"); // Wait for interrupts
+        }
+        
+        vga_printf("Shell exited\n");
+    } else {
+        vga_printf("Failed to load ramfs, continuing without shell\n");
+        vga_attr(0x07);
+        
+        while(1) __asm__ volatile("hlt");
+    }
 }

@@ -10,8 +10,19 @@ static volatile char* vga_addr = (volatile char*) 0xb8000;
 static Cursor cursor = {0, 0};
 static u8 arrt = 0x07;
 
+// ANSI escape sequence parsing state
+typedef enum {
+    ANSI_STATE_NORMAL,
+    ANSI_STATE_ESCAPE,
+    ANSI_STATE_CSI
+} ansi_state_t;
 
-static void vga_update_cursor(int x, int y) {
+static ansi_state_t ansi_state = ANSI_STATE_NORMAL;
+static char ansi_buffer[16];
+static int ansi_buffer_pos = 0;
+
+
+void vga_update_cursor(int x, int y) {
 	u16 pos = y * VGA_WIDTH + x;
 
 	outb(0x3D4, 0x0F);
@@ -40,7 +51,120 @@ static void vga_scroll_up(void) {
     }
 }
 
+static void vga_handle_ansi_sequence(void) {
+    ansi_buffer[ansi_buffer_pos] = '\0';
+    
+    // Parse common ANSI escape sequences
+    if (ansi_buffer_pos == 1) {
+        switch (ansi_buffer[0]) {
+            case 'C': // Move cursor right
+                if (cursor.x < VGA_WIDTH - 1) {
+                    cursor.x++;
+                    vga_update_cursor(cursor.x, cursor.y);
+                }
+                break;
+            case 'D': // Move cursor left
+                if (cursor.x > 0) {
+                    cursor.x--;
+                    vga_update_cursor(cursor.x, cursor.y);
+                }
+                break;
+            case 'H': // Move cursor to home position
+                cursor.x = 0;
+                cursor.y = 0;
+                vga_update_cursor(cursor.x, cursor.y);
+                break;
+            case 'K': // Clear to end of line
+                {
+                    int pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
+                    int line_end = (cursor.y * VGA_WIDTH + VGA_WIDTH) * 2;
+                    for (int i = pos; i < line_end; i += 2) {
+                        vga_addr[i] = ' ';
+                        vga_addr[i + 1] = arrt;
+                    }
+                }
+                break;
+            case 'G': // Move cursor to beginning of line
+                cursor.x = 0;
+                vga_update_cursor(cursor.x, cursor.y);
+                break;
+        }
+    } else if (ansi_buffer_pos == 2) {
+        if (ansi_buffer[0] == '2') {
+            switch (ansi_buffer[1]) {
+                case 'J': // Clear entire screen
+                    for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH * 2; i += 2) {
+                        vga_addr[i] = ' ';
+                        vga_addr[i + 1] = arrt;
+                    }
+                    cursor.x = 0;
+                    cursor.y = 0;
+                    vga_update_cursor(cursor.x, cursor.y);
+                    break;
+                case 'K': // Clear entire line
+                    {
+                        int line_start = cursor.y * VGA_WIDTH * 2;
+                        for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
+                            vga_addr[line_start + i] = ' ';
+                            vga_addr[line_start + i + 1] = arrt;
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+    
+    // Reset state
+    ansi_state = ANSI_STATE_NORMAL;
+    ansi_buffer_pos = 0;
+}
+
 void vga_putchar(char c) {
+    // Handle ANSI escape sequences
+    switch (ansi_state) {
+        case ANSI_STATE_NORMAL:
+            if (c == '\x1b') {
+                ansi_state = ANSI_STATE_ESCAPE;
+                ansi_buffer_pos = 0;
+                return;
+            }
+            break;
+            
+        case ANSI_STATE_ESCAPE:
+            if (c == '[') {
+                ansi_state = ANSI_STATE_CSI;
+                ansi_buffer_pos = 0;
+                return;
+            } else {
+                // Not a CSI sequence, reset to normal
+                ansi_state = ANSI_STATE_NORMAL;
+                ansi_buffer_pos = 0;
+            }
+            break;
+            
+        case ANSI_STATE_CSI:
+            if ((c >= '0' && c <= '9') || c == ';') {
+                // Parameter character, store it
+                if (ansi_buffer_pos < (int)(sizeof(ansi_buffer) - 1)) {
+                    ansi_buffer[ansi_buffer_pos++] = c;
+                }
+                return;
+            } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+                // Final character, store and process
+                if (ansi_buffer_pos < (int)(sizeof(ansi_buffer) - 1)) {
+                    ansi_buffer[ansi_buffer_pos++] = c;
+                }
+                vga_handle_ansi_sequence();
+                return;
+            } else {
+                // Invalid sequence, reset to normal
+                ansi_state = ANSI_STATE_NORMAL;
+                ansi_buffer_pos = 0;
+            }
+            break;
+    }
+    
+    // Normal character processing
     if (c == '\n') {
         cursor.x = 0;
         cursor.y++;
@@ -85,6 +209,53 @@ void vga_putchar(char c) {
 
 void vga_attr(u8 _arrt) {
     arrt = _arrt;
+}
+
+void vga_clear_screen(void) {
+    for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH * 2; i += 2) {
+        vga_addr[i] = ' ';
+        vga_addr[i + 1] = arrt;
+    }
+    cursor.x = 0;
+    cursor.y = 0;
+    vga_update_cursor(cursor.x, cursor.y);
+}
+
+void vga_clear_line(void) {
+    int line_start = cursor.y * VGA_WIDTH * 2;
+    for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
+        vga_addr[line_start + i] = ' ';
+        vga_addr[line_start + i + 1] = arrt;
+    }
+}
+
+void vga_clear_to_eol(void) {
+    int pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
+    int line_end = (cursor.y * VGA_WIDTH + VGA_WIDTH) * 2;
+    for (int i = pos; i < line_end; i += 2) {
+        vga_addr[i] = ' ';
+        vga_addr[i + 1] = arrt;
+    }
+}
+
+void vga_move_cursor_left(void) {
+    if (cursor.x > 0) {
+        cursor.x--;
+        vga_update_cursor(cursor.x, cursor.y);
+    }
+}
+
+void vga_move_cursor_right(void) {
+    if (cursor.x < VGA_WIDTH - 1) {
+        cursor.x++;
+        vga_update_cursor(cursor.x, cursor.y);
+    }
+}
+
+void vga_move_cursor_home(void) {
+    cursor.x = 0;
+    cursor.y = 0;
+    vga_update_cursor(cursor.x, cursor.y);
 }
 
 static void vga_put_uint(unsigned int val, unsigned int base, bool upper) {

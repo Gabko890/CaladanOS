@@ -8,6 +8,10 @@ void ps2_init(void);
 void ps2_handler(void);
 u128 ps2_keyarr(void);
 
+// Callback for key events
+typedef void (*ps2_key_callback_t)(u8 scancode, int is_extended, int is_pressed);
+void ps2_set_key_callback(ps2_key_callback_t callback);
+
 // Letters
 #define US_A        0x1E
 #define US_A_REL    0x9E
