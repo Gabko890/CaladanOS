@@ -1,7 +1,12 @@
 # CaladanOS
 
 ## Description
-CaladanOS is simple os writen in C99
+CaladanOS is simple os writen in C;
+
+Currently supporting:
+  simple memory management (map, kmalloc...);
+  runtime ramfs from cpio archive;
+  simple shell (part of kernel) to interact with ramfs;
 
 ## How to Run
 ### Downlaod git repository
@@ -14,11 +19,12 @@ CaladanOS is simple os writen in C99
   make
   ```
 ### Run
-  If you have qemu installed (linux), after compiling just run:
+  If you have qemu installed (on linux), after compiling just run:
   ```bash
   make qemu
   ```
-  Or using different Virtual machine (eg. VirtualBox), ISO is placed in build/CaladnOS.iso
+  Or you can use any Virtual machine (BIOS boot),
+  ISO is available in build/CaladnOS.iso
 
 ## Screenshots
 ![shell to operate ramfs](./screenshots/screen1.png)
