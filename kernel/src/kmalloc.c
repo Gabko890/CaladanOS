@@ -6,7 +6,6 @@
 #include <string.h>
 
 static heap_info_t kernel_heap = {0};
-static heap_info_t userland_heap = {0};
 static struct memory_info *global_minfo = NULL;
 
 #define MIN_BLOCK_SIZE sizeof(free_block_t)
@@ -124,39 +123,28 @@ static u64 find_suitable_memory_region(struct memory_info* minfo, size_t require
 void kmalloc_init(struct memory_info* minfo) {
     global_minfo = minfo;
     
-    size_t kernel_heap_size = 8ULL << 20;  // 8MB for kernel heap
-    size_t userland_heap_size = 16ULL << 20;  // 16MB for userland heap
+    size_t kernel_heap_size = 24ULL << 20;  // 24MB for kernel heap (increased from 8MB)
     
     vga_printf("kmalloc_init: Initializing dynamic allocator\n");
     vga_printf("kmalloc_init: Found %zu memory regions\n", minfo->count);
     
-    u64 kernel_heap_phys = find_suitable_memory_region(minfo, kernel_heap_size + userland_heap_size);
+    u64 kernel_heap_phys = find_suitable_memory_region(minfo, kernel_heap_size);
     if (!kernel_heap_phys) {
         vga_printf("kmalloc_init: Failed to find suitable memory region\n");
         return;
     }
     
-    u64 userland_heap_phys = kernel_heap_phys + kernel_heap_size;
-    
     // Calculate virtual addresses based on kernel layout to avoid collisions
     u64 kernel_virt_end = (u64)__kernel_end_vma;
     u64 kernel_heap_virt = (kernel_virt_end + 0xFFFFFULL) & ~0xFFFFFULL; // Align to 1MB
-    u64 userland_heap_virt = kernel_heap_virt + kernel_heap_size;
     
     kernel_heap.base_virt = (void*)kernel_heap_virt;
     kernel_heap.base_phys = kernel_heap_phys;
     kernel_heap.total_size = kernel_heap_size;
     kernel_heap.used_size = 0;
     
-    userland_heap.base_virt = (void*)userland_heap_virt;
-    userland_heap.base_phys = userland_heap_phys;
-    userland_heap.total_size = userland_heap_size;
-    userland_heap.used_size = 0;
-    
     vga_printf("Kernel heap: virt=0x%llx phys=0x%llx size=%lluMB\n", 
               (u64)kernel_heap.base_virt, kernel_heap.base_phys, kernel_heap_size >> 20);
-    vga_printf("Userland heap: virt=0x%llx phys=0x%llx size=%lluMB\n", 
-              (u64)userland_heap.base_virt, userland_heap.base_phys, userland_heap_size >> 20);
     
     for (u64 offset = 0; offset < kernel_heap_size; offset += PAGE_4K) {
         if (!mm_map((u64)kernel_heap.base_virt + offset, 
@@ -167,25 +155,11 @@ void kmalloc_init(struct memory_info* minfo) {
         }
     }
     
-    for (u64 offset = 0; offset < userland_heap_size; offset += PAGE_4K) {
-        if (!mm_map((u64)userland_heap.base_virt + offset, 
-                   userland_heap.base_phys + offset, 
-                   PTE_RW | PTE_PRESENT, PAGE_4K)) {
-            vga_printf("kmalloc_init: Failed to map userland heap at offset 0x%llx\n", offset);
-            return;
-        }
-    }
-    
     kernel_heap.free_list = (free_block_t*)kernel_heap.base_virt;
     kernel_heap.free_list->size = kernel_heap_size;
     kernel_heap.free_list->next = NULL;
     
-    userland_heap.free_list = (free_block_t*)userland_heap.base_virt;
-    userland_heap.free_list->size = userland_heap_size;
-    userland_heap.free_list->next = NULL;
-    
     kernel_heap.initialized = 1;
-    userland_heap.initialized = 1;
     
     vga_printf("kmalloc_init: Dynamic allocator ready\n");
 }
@@ -213,28 +187,6 @@ void* kmalloc(size_t size) {
     return (void*)((char*)block + sizeof(size_t));
 }
 
-void* kmalloc_userland(size_t size) {
-    if (!userland_heap.initialized || size == 0) {
-        return NULL;
-    }
-    
-    size_t aligned_size = align_size(size + sizeof(size_t)); // Include size header
-    if (aligned_size < MIN_BLOCK_SIZE) {
-        aligned_size = MIN_BLOCK_SIZE;
-    }
-    
-    free_block_t* block = find_free_block(&userland_heap, aligned_size);
-    if (!block) {
-        return NULL;
-    }
-    
-    split_block(&userland_heap, block, aligned_size);
-    
-    *(size_t*)block = aligned_size;
-    userland_heap.used_size += aligned_size;
-    
-    return (void*)((char*)block + sizeof(size_t));
-}
 
 void kfree(void* ptr) {
     if (!ptr || !kernel_heap.initialized) {
@@ -256,25 +208,6 @@ void kfree(void* ptr) {
     insert_free_block(&kernel_heap, free_block);
 }
 
-void kfree_userland(void* ptr) {
-    if (!ptr || !userland_heap.initialized) {
-        return;
-    }
-    
-    char* block_start = (char*)ptr - sizeof(size_t);
-    size_t block_size = *(size_t*)block_start;
-    
-    if ((uintptr_t)block_start < (uintptr_t)userland_heap.base_virt ||
-        (uintptr_t)block_start >= (uintptr_t)userland_heap.base_virt + userland_heap.total_size) {
-        return; // Not from our heap
-    }
-    
-    free_block_t* free_block = (free_block_t*)block_start;
-    free_block->size = block_size;
-    
-    userland_heap.used_size -= block_size;
-    insert_free_block(&userland_heap, free_block);
-}
 
 void* krealloc(void* ptr, size_t size) {
     if (!ptr) {
@@ -302,31 +235,6 @@ void* krealloc(void* ptr, size_t size) {
     return new_ptr;
 }
 
-void* krealloc_userland(void* ptr, size_t size) {
-    if (!ptr) {
-        return kmalloc_userland(size);
-    }
-    
-    if (size == 0) {
-        kfree_userland(ptr);
-        return NULL;
-    }
-    
-    char* block_start = (char*)ptr - sizeof(size_t);
-    size_t old_size = *(size_t*)block_start;
-    size_t old_data_size = old_size - sizeof(size_t);
-    
-    void* new_ptr = kmalloc_userland(size);
-    if (!new_ptr) {
-        return NULL;
-    }
-    
-    size_t copy_size = (size < old_data_size) ? size : old_data_size;
-    memcpy(new_ptr, ptr, copy_size);
-    
-    kfree_userland(ptr);
-    return new_ptr;
-}
 
 u64 kmalloc_virt_to_phys(void* virt_ptr) {
     if (!virt_ptr || !kernel_heap.initialized) {
@@ -344,36 +252,14 @@ u64 kmalloc_virt_to_phys(void* virt_ptr) {
     return 0;
 }
 
-u64 kmalloc_userland_virt_to_phys(void* virt_ptr) {
-    if (!virt_ptr || !userland_heap.initialized) {
-        return 0;
-    }
-    
-    uintptr_t virt_addr = (uintptr_t)virt_ptr;
-    uintptr_t heap_base = (uintptr_t)userland_heap.base_virt;
-    
-    if (virt_addr >= heap_base && virt_addr < heap_base + userland_heap.total_size) {
-        u64 offset = virt_addr - heap_base;
-        return userland_heap.base_phys + offset;
-    }
-    
-    return 0;
-}
 
 u64 kmalloc_get_kernel_heap_base(void) {
     return (u64)kernel_heap.base_virt;
 }
 
-u64 kmalloc_get_userland_heap_base(void) {
-    return (u64)userland_heap.base_virt;
-}
 
 void kmalloc_debug_info(void) {
     vga_printf("=== Kernel Heap Info ===\n");
     vga_printf("Base: 0x%llx, Size: %llu KB, Used: %llu KB\n", 
               (u64)kernel_heap.base_virt, kernel_heap.total_size / 1024, kernel_heap.used_size / 1024);
-    
-    vga_printf("=== Userland Heap Info ===\n");
-    vga_printf("Base: 0x%llx, Size: %llu KB, Used: %llu KB\n", 
-              (u64)userland_heap.base_virt, userland_heap.total_size / 1024, userland_heap.used_size / 1024);
 }

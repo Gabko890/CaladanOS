@@ -19,9 +19,6 @@ extern void kmalloc_zero_size_test(void);
 extern void kmalloc_free_reuse_test(void);
 extern void krealloc_test(void);
 extern void kernel_malloc_test(void);
-extern void userland_malloc_test(void);
-extern void userland_krealloc_test(void);
-extern void mixed_allocation_test(void);
 
 #define CLDTEST_INIT() do { \
     cldtest_register_suite("memory_tests", 0); \
@@ -43,9 +40,6 @@ extern void mixed_allocation_test(void);
     cldtest_register_test("Kmalloc free and reuse test", kmalloc_free_reuse_test, "malloc_tests"); \
     cldtest_register_test("Krealloc test", krealloc_test, "malloc_tests"); \
     cldtest_register_test("Kernel malloc test", kernel_malloc_test, "malloc_tests"); \
-    cldtest_register_test("Userland malloc test", userland_malloc_test, "malloc_tests"); \
-    cldtest_register_test("Userland krealloc test", userland_krealloc_test, "malloc_tests"); \
-    cldtest_register_test("Mixed allocation test", mixed_allocation_test, "malloc_tests"); \
 } while(0)
 
 #endif // TESTDECLS_H
