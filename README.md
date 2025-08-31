@@ -1,7 +1,7 @@
 # CaladanOS
 
 ## Description
-CaladanOS is simple os writen in C;
+CaladanOS is simple os written in C;
 
 Currently supporting:
   simple memory management (map, kmalloc...);
