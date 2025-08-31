@@ -107,7 +107,10 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     // dbg_reg_print(&minfo);
     
-    u64 pml4_phys = mm_init(&minfo, 0xFFFFFFFF80400000UL);
+    // Align kernel end up to next 4KB boundary and add 4KB gap for safety
+    u64 kernel_end_aligned = ((u64)__kernel_end_vma + 0xFFFULL) & ~0xFFFULL;
+    u64 page_table_virt = kernel_end_aligned + 0x1000ULL;  // Add 4KB gap
+    u64 pml4_phys = mm_init(&minfo, page_table_virt);
     
     if (0x00 == pml4_phys) {
         vga_printf("memory mapper initialization failed\n");
@@ -134,17 +137,6 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         }
     }
 
-    // Heap virtual mapping (before switching page tables) - use higher physical address
-    uint64_t kernel_heap_phys = 0x01000000ULL;  // 16MB mark - safer location
-    uint64_t kernel_heap_virt = 0xFFFFFFFF90000000ULL;
-    uint64_t kernel_heap_size = 4ULL << 20; // e.g. 4 MiB kernel
-
-    for (uint64_t off = 0; off < kernel_heap_size; off += 0x1000) {
-        if (!mm_map(kernel_heap_virt + off, kernel_heap_phys + off, PTE_RW | PTE_PRESENT, PAGE_4K)) {
-            vga_printf("kernel map failure2\n");
-            __asm__ volatile("cli; hlt");
-        }
-    }
 
     // Switch to new page tables
     __asm__ volatile (

@@ -3,20 +3,12 @@
 
 #include <cldtypes.h>
 #include <memory_info.h>
+#include <kheap.h>
 
 typedef struct free_block {
     size_t size;
     struct free_block* next;
 } free_block_t;
-
-typedef struct heap_info {
-    void* base_virt;
-    u64 base_phys;
-    size_t total_size;
-    size_t used_size;
-    free_block_t* free_list;
-    u8 initialized;
-} heap_info_t;
 
 void kmalloc_init(struct memory_info* minfo);
 
