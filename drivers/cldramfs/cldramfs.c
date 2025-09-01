@@ -328,17 +328,326 @@ void cldramfs_cmd_cat(const char *arg) {
     }
 }
 
-void cldramfs_cmd_echo(const char *text, const char *path) {
-    if (!text || !path) return;
+static void write_to_file(Node *file, const char *text, int append) {
+    u32 text_len = strlen(text);
     
-    Node *file = cldramfs_resolve_path_file(path, 1);
-    if (!file) return;
+    if (append && file->content && file->content_size > 0) {
+        u32 new_size = file->content_size + text_len;
+        char *new_content = (char*)kmalloc(new_size + 1);
+        if (new_content) {
+            strcpy(new_content, file->content);
+            strcat(new_content, text);
+            kfree(file->content);
+            file->content = new_content;
+            file->content_size = new_size;
+        }
+    } else {
+        kfree(file->content);
+        file->content = (char*)kmalloc(text_len + 1);
+        if (file->content) {
+            strcpy(file->content, text);
+            file->content_size = text_len;
+        }
+    }
+}
+
+void cldramfs_cmd_echo(const char *args) {
+    if (!args) return;
+    
+    char temp[512];
+    strncpy(temp, args, 511);
+    temp[511] = '\0';
+    
+    char *redir_pos = strstr(temp, ">>");
+    int append = 0;
+    char *filename = NULL;
+    
+    if (redir_pos) {
+        append = 1;
+        *redir_pos = '\0';
+        filename = redir_pos + 2;
+        while (*filename == ' ') filename++;
+    } else {
+        redir_pos = strstr(temp, ">");
+        if (redir_pos) {
+            *redir_pos = '\0';
+            filename = redir_pos + 1;
+            while (*filename == ' ') filename++;
+        }
+    }
+    
+    char *text = temp;
+    while (*text == ' ') text++;
     
     u32 text_len = strlen(text);
-    kfree(file->content);
-    file->content = (char*)kmalloc(text_len + 1);
-    if (file->content) {
-        strcpy(file->content, text);
-        file->content_size = text_len;
+    while (text_len > 0 && (text[text_len-1] == ' ' || text[text_len-1] == '\t')) {
+        text[--text_len] = '\0';
     }
+    
+    if (filename) {
+        Node *file = cldramfs_resolve_path_file(filename, 1);
+        if (file) {
+            write_to_file(file, text, append);
+        }
+    } else {
+        vga_printf("%s\n", text);
+    }
+}
+
+void cldramfs_cmd_rm(const char *arg) {
+    if (!arg) {
+        vga_printf("rm: missing file operand\n");
+        return;
+    }
+    
+    u32 path_len = strlen(arg);
+    char *temp = (char*)kmalloc(path_len + 1);
+    if (!temp) return;
+    strcpy(temp, arg);
+    
+    char *last_slash = strrchr(temp, '/');
+    Node *dir;
+    char *fname;
+    
+    if (last_slash) {
+        *last_slash = '\0';
+        dir = cldramfs_resolve_path_dir(temp, 0);
+        fname = last_slash + 1;
+    } else {
+        dir = ramfs_cwd;
+        fname = temp;
+    }
+    
+    if (!dir) {
+        vga_printf("rm: cannot remove '%s': No such file or directory\n", arg);
+        kfree(temp);
+        return;
+    }
+    
+    Node *file = cldramfs_find_child(dir, fname);
+    if (!file) {
+        vga_printf("rm: cannot remove '%s': No such file or directory\n", arg);
+        kfree(temp);
+        return;
+    }
+    
+    if (file->type == DIR_NODE) {
+        vga_printf("rm: cannot remove '%s': Is a directory\n", arg);
+        kfree(temp);
+        return;
+    }
+    
+    for (u32 i = 0; i < dir->child_count; i++) {
+        if (dir->children[i] == file) {
+            for (u32 j = i; j < dir->child_count - 1; j++) {
+                dir->children[j] = dir->children[j + 1];
+            }
+            dir->child_count--;
+            break;
+        }
+    }
+    
+    cldramfs_free_node(file);
+    kfree(temp);
+}
+
+void cldramfs_cmd_rmdir(const char *arg) {
+    if (!arg) {
+        vga_printf("rmdir: missing operand\n");
+        return;
+    }
+    
+    Node *dir = cldramfs_resolve_path_dir(arg, 0);
+    if (!dir) {
+        vga_printf("rmdir: failed to remove '%s': No such file or directory\n", arg);
+        return;
+    }
+    
+    if (dir == ramfs_root) {
+        vga_printf("rmdir: failed to remove '%s': Cannot remove root directory\n", arg);
+        return;
+    }
+    
+    if (dir == ramfs_cwd) {
+        vga_printf("rmdir: failed to remove '%s': Cannot remove current directory\n", arg);
+        return;
+    }
+    
+    if (dir->child_count > 0) {
+        vga_printf("rmdir: failed to remove '%s': Directory not empty\n", arg);
+        return;
+    }
+    
+    Node *parent = dir->parent;
+    if (parent) {
+        for (u32 i = 0; i < parent->child_count; i++) {
+            if (parent->children[i] == dir) {
+                for (u32 j = i; j < parent->child_count - 1; j++) {
+                    parent->children[j] = parent->children[j + 1];
+                }
+                parent->child_count--;
+                break;
+            }
+        }
+    }
+    
+    cldramfs_free_node(dir);
+}
+
+void cldramfs_cmd_mv(const char *src, const char *dst) {
+    if (!src || !dst) {
+        vga_printf("mv: missing file operand\n");
+        return;
+    }
+    
+    u32 src_len = strlen(src);
+    char *src_temp = (char*)kmalloc(src_len + 1);
+    if (!src_temp) return;
+    strcpy(src_temp, src);
+    
+    char *src_last_slash = strrchr(src_temp, '/');
+    Node *src_dir;
+    char *src_fname;
+    
+    if (src_last_slash) {
+        *src_last_slash = '\0';
+        src_dir = cldramfs_resolve_path_dir(src_temp, 0);
+        src_fname = src_last_slash + 1;
+    } else {
+        src_dir = ramfs_cwd;
+        src_fname = src_temp;
+    }
+    
+    if (!src_dir) {
+        vga_printf("mv: cannot stat '%s': No such file or directory\n", src);
+        kfree(src_temp);
+        return;
+    }
+    
+    Node *src_node = cldramfs_find_child(src_dir, src_fname);
+    if (!src_node) {
+        vga_printf("mv: cannot stat '%s': No such file or directory\n", src);
+        kfree(src_temp);
+        return;
+    }
+    
+    u32 dst_len = strlen(dst);
+    char *dst_temp = (char*)kmalloc(dst_len + 1);
+    if (!dst_temp) {
+        kfree(src_temp);
+        return;
+    }
+    strcpy(dst_temp, dst);
+    
+    char *dst_last_slash = strrchr(dst_temp, '/');
+    Node *dst_dir;
+    char *dst_fname;
+    
+    if (dst_last_slash) {
+        *dst_last_slash = '\0';
+        dst_dir = cldramfs_resolve_path_dir(dst_temp, 0);
+        dst_fname = dst_last_slash + 1;
+    } else {
+        dst_dir = ramfs_cwd;
+        dst_fname = dst_temp;
+    }
+    
+    if (!dst_dir) {
+        vga_printf("mv: cannot move '%s' to '%s': No such file or directory\n", src, dst);
+        kfree(src_temp);
+        kfree(dst_temp);
+        return;
+    }
+    
+    for (u32 i = 0; i < src_dir->child_count; i++) {
+        if (src_dir->children[i] == src_node) {
+            for (u32 j = i; j < src_dir->child_count - 1; j++) {
+                src_dir->children[j] = src_dir->children[j + 1];
+            }
+            src_dir->child_count--;
+            break;
+        }
+    }
+    
+    kfree(src_node->name);
+    u32 new_name_len = strlen(dst_fname);
+    src_node->name = (char*)kmalloc(new_name_len + 1);
+    if (src_node->name) {
+        strcpy(src_node->name, dst_fname);
+    }
+    src_node->parent = dst_dir;
+    
+    cldramfs_add_child(dst_dir, src_node);
+    
+    kfree(src_temp);
+    kfree(dst_temp);
+}
+
+void cldramfs_cmd_cp(const char *src, const char *dst) {
+    if (!src || !dst) {
+        vga_printf("cp: missing file operand\n");
+        return;
+    }
+    
+    u32 src_len = strlen(src);
+    char *src_temp = (char*)kmalloc(src_len + 1);
+    if (!src_temp) return;
+    strcpy(src_temp, src);
+    
+    char *src_last_slash = strrchr(src_temp, '/');
+    Node *src_dir;
+    char *src_fname;
+    
+    if (src_last_slash) {
+        *src_last_slash = '\0';
+        src_dir = cldramfs_resolve_path_dir(src_temp, 0);
+        src_fname = src_last_slash + 1;
+    } else {
+        src_dir = ramfs_cwd;
+        src_fname = src_temp;
+    }
+    
+    if (!src_dir) {
+        vga_printf("cp: cannot stat '%s': No such file or directory\n", src);
+        kfree(src_temp);
+        return;
+    }
+    
+    Node *src_node = cldramfs_find_child(src_dir, src_fname);
+    if (!src_node) {
+        vga_printf("cp: cannot stat '%s': No such file or directory\n", src);
+        kfree(src_temp);
+        return;
+    }
+    
+    if (src_node->type == DIR_NODE) {
+        vga_printf("cp: omitting directory '%s'\n", src);
+        kfree(src_temp);
+        return;
+    }
+    
+    Node *dst_node = cldramfs_resolve_path_file(dst, 1);
+    if (!dst_node) {
+        vga_printf("cp: cannot create '%s'\n", dst);
+        kfree(src_temp);
+        return;
+    }
+    
+    if (src_node->content && src_node->content_size > 0) {
+        kfree(dst_node->content);
+        dst_node->content = (char*)kmalloc(src_node->content_size + 1);
+        if (dst_node->content) {
+            strcpy(dst_node->content, src_node->content);
+            dst_node->content_size = src_node->content_size;
+        }
+    } else {
+        kfree(dst_node->content);
+        dst_node->content = (char*)kmalloc(1);
+        if (dst_node->content) {
+            dst_node->content[0] = '\0';
+            dst_node->content_size = 0;
+        }
+    }
+    
+    kfree(src_temp);
 }

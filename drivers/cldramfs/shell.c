@@ -44,32 +44,25 @@ static char* find_arg(char *str) {
     return skip_whitespace(str);
 }
 
-static void parse_echo_command(const char *line, char *text, char *path) {
-    text[0] = '\0';
-    path[0] = '\0';
+static void parse_two_args(const char *cmd, char *arg1, char *arg2) {
+    arg1[0] = '\0';
+    arg2[0] = '\0';
     
-    const char *start = strchr(line, '"');
-    if (!start) return;
-    start++; // Skip opening quote
+    char *space1 = strchr(cmd, ' ');
+    if (!space1) return;
     
-    const char *end = strchr(start, '"');
-    if (!end) return;
+    space1 = skip_whitespace(space1);
+    char *space2 = strchr(space1, ' ');
+    if (!space2) return;
     
-    // Copy text
-    u32 text_len = end - start;
-    if (text_len > 255) text_len = 255;
-    strncpy(text, start, text_len);
-    text[text_len] = '\0';
+    u32 arg1_len = space2 - space1;
+    if (arg1_len > 255) arg1_len = 255;
+    strncpy(arg1, space1, arg1_len);
+    arg1[arg1_len] = '\0';
     
-    // Find redirect operator
-    const char *redir = strchr(end, '>');
-    if (!redir) return;
-    redir++; // Skip '>'
-    
-    // Skip whitespace and copy path
-    redir = skip_whitespace((char*)redir);
-    strncpy(path, redir, 255);
-    path[255] = '\0';
+    space2 = skip_whitespace(space2);
+    strncpy(arg2, space2, 255);
+    arg2[255] = '\0';
 }
 
 int cldramfs_shell_process_command(const char *command_line) {
@@ -121,13 +114,34 @@ int cldramfs_shell_process_command(const char *command_line) {
             vga_printf("cat: missing file name\n");
         }
     }
-    else if (strncmp(cmd, "echo", 4) == 0 && cmd[4] == ' ') {
-        char text[256], path[256];
-        parse_echo_command(cmd, text, path);
-        if (text[0] && path[0]) {
-            cldramfs_cmd_echo(text, path);
+    else if (strncmp(cmd, "echo", 4) == 0 && (cmd[4] == ' ' || cmd[4] == '\0')) {
+        char *arg = find_arg(cmd);
+        cldramfs_cmd_echo(arg);
+    }
+    else if (strncmp(cmd, "rm", 2) == 0 && (cmd[2] == '\0' || cmd[2] == ' ')) {
+        char *arg = find_arg(cmd);
+        cldramfs_cmd_rm(arg);
+    }
+    else if (strncmp(cmd, "rmdir", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' ')) {
+        char *arg = find_arg(cmd);
+        cldramfs_cmd_rmdir(arg);
+    }
+    else if (strncmp(cmd, "mv", 2) == 0 && cmd[2] == ' ') {
+        char arg1[256], arg2[256];
+        parse_two_args(cmd, arg1, arg2);
+        if (arg1[0] && arg2[0]) {
+            cldramfs_cmd_mv(arg1, arg2);
         } else {
-            vga_printf("echo: usage: echo \"text\" > file\n");
+            vga_printf("mv: usage: mv <source> <destination>\n");
+        }
+    }
+    else if (strncmp(cmd, "cp", 2) == 0 && cmd[2] == ' ') {
+        char arg1[256], arg2[256];
+        parse_two_args(cmd, arg1, arg2);
+        if (arg1[0] && arg2[0]) {
+            cldramfs_cmd_cp(arg1, arg2);
+        } else {
+            vga_printf("cp: usage: cp <source> <destination>\n");
         }
     }
     else if (strcmp(cmd, "help") == 0) {
@@ -135,9 +149,15 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  ls [path]           - List directory contents\n");
         vga_printf("  cd [path]           - Change directory\n");
         vga_printf("  mkdir <path>        - Create directory\n");
+        vga_printf("  rmdir <path>        - Remove empty directory\n");
         vga_printf("  touch <file>        - Create file\n");
+        vga_printf("  rm <file>           - Remove file\n");
         vga_printf("  cat <file>          - Display file contents\n");
-        vga_printf("  echo \"text\" > file  - Write text to file\n");
+        vga_printf("  cp <src> <dst>      - Copy file\n");
+        vga_printf("  mv <src> <dst>      - Move/rename file\n");
+        vga_printf("  echo [text]         - Print text to stdout\n");
+        vga_printf("  echo [text] > file  - Write text to file\n");
+        vga_printf("  echo [text] >> file - Append text to file\n");
         vga_printf("  clear               - Clear screen\n");
         vga_printf("  exit                - Exit shell\n");
     }
