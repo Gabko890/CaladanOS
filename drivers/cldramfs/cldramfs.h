@@ -54,6 +54,10 @@ void cldramfs_cmd_cd(const char *arg);
 void cldramfs_cmd_mkdir(const char *arg);
 void cldramfs_cmd_touch(const char *arg);
 void cldramfs_cmd_cat(const char *arg);
-void cldramfs_cmd_echo(const char *text, const char *path);
+void cldramfs_cmd_echo(const char *args);
+void cldramfs_cmd_rm(const char *arg);
+void cldramfs_cmd_rmdir(const char *arg);
+void cldramfs_cmd_mv(const char *src, const char *dst);
+void cldramfs_cmd_cp(const char *src, const char *dst);
 
 #endif // CLDRAMFS_H
