@@ -192,6 +192,15 @@ build-x86_64-internal: $(OBJECTS)
 	@$(LD) -n -o $(BUILD_DIR)/kernel/kernel.elf -T $(LINKER_SCRIPT) $(OBJECTS)
 	@cp $(BUILD_DIR)/kernel/kernel.elf $(ISO_DIR)/boot/kernel.elf
 	@mkdir -p $(ISO_DIR)/boot
+	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) test programs..."
+	@mkdir -p $(RAMFS_DIR)/bin
+	@for asm_file in programs/*.asm; do \
+		if [ -f "$$asm_file" ]; then \
+			base_name=$$(basename "$$asm_file" .asm); \
+			echo "  Compiling $$base_name"; \
+			$(ASM) -f elf64 "$$asm_file" -o "$(RAMFS_DIR)/bin/$$base_name.o"; \
+		fi; \
+	done
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ramfs archive from: $(RAMFS_DIR)"
 	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$(ISO_DIR)/boot/ramfs.cpio)
 	@cpio -itv < $(ISO_DIR)/boot/ramfs.cpio

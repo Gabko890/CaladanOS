@@ -2,6 +2,7 @@
 #include <kmalloc.h>
 #include <string.h>
 #include <vgaio.h>
+#include <elf_loader.h>
 
 Node *ramfs_root = NULL;
 Node *ramfs_cwd = NULL;
@@ -650,4 +651,44 @@ void cldramfs_cmd_cp(const char *src, const char *dst) {
     }
     
     kfree(src_temp);
+}
+
+void cldramfs_cmd_exec(const char *arg) {
+    if (!arg || strlen(arg) == 0) {
+        vga_printf("exec: missing ELF file name\n");
+        vga_printf("usage: exec <filename.o>\n");
+        return;
+    }
+    
+    // Find the file in ramfs
+    Node *file_node = cldramfs_resolve_path_file(arg, 0);
+    if (!file_node) {
+        vga_printf("exec: file '%s' not found\n", arg);
+        return;
+    }
+    
+    if (file_node->type != FILE_NODE) {
+        vga_printf("exec: '%s' is not a file\n", arg);
+        return;
+    }
+    
+    if (!file_node->content || file_node->content_size == 0) {
+        vga_printf("exec: file '%s' is empty\n", arg);
+        return;
+    }
+    
+    // Load the ELF file
+    loaded_elf_t loaded_elf;
+    int result = elf_load(file_node->content, file_node->content_size, &loaded_elf);
+    if (result != 0) {
+        vga_printf("exec: failed to load ELF file '%s'\n", arg);
+        return;
+    }
+    
+    // Execute the ELF file
+    result = elf_execute(&loaded_elf, arg);
+    vga_printf("Program exited with code: %d\n", result);
+    
+    // Clean up
+    // elf_unload(&loaded_elf);  // COMMENTED FOR NOW TO TEST
 }

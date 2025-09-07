@@ -17,6 +17,10 @@
 #include "../drivers/cldramfs/cldramfs.h"
 #include "../drivers/cldramfs/shell.h"
 #include "../drivers/cldramfs/tty.h"
+#include <syscalls.h>
+#include <syscall_test.h>
+#include <elf_loader.h>
+#include <process.h>
 
 // Shell integration globals
 static int shell_active = 0;
@@ -33,6 +37,9 @@ void handle_ps2(void) {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
 }
+
+// External declaration for syscall interrupt handler (from assembly)
+extern void syscall_interrupt_handler(void);
 
 // Function to load CPIO archive from multiboot modules
 static int load_ramfs_from_modules(u32 mb2_info) {
@@ -161,8 +168,31 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     // interrupt system (PIC + IDT)
     pic_init();
     
-    // Set up exception handlers (0-31)
-    for (int i = 0; i < 32; i++) {
+    // Set up specific CPU exception handlers (0-31)
+    set_idt_entry(0, &division_error_handler, 0x08, 0x8e);              // Division by zero
+    set_idt_entry(1, &debug_exception_handler, 0x08, 0x8e);             // Debug
+    set_idt_entry(2, &nmi_handler, 0x08, 0x8e);                         // NMI
+    set_idt_entry(3, &breakpoint_handler, 0x08, 0x8e);                  // Breakpoint
+    set_idt_entry(4, &overflow_handler, 0x08, 0x8e);                    // Overflow
+    set_idt_entry(5, &bound_range_exceeded_handler, 0x08, 0x8e);        // Bound range exceeded
+    set_idt_entry(6, &invalid_opcode_handler, 0x08, 0x8e);              // Invalid opcode
+    set_idt_entry(7, &device_not_available_handler, 0x08, 0x8e);        // Device not available
+    set_idt_entry(8, &double_fault_handler, 0x08, 0x8e);                // Double fault
+    // Skip 9 (coprocessor segment overrun - obsolete)
+    set_idt_entry(10, &invalid_tss_handler, 0x08, 0x8e);                // Invalid TSS
+    set_idt_entry(11, &segment_not_present_handler, 0x08, 0x8e);        // Segment not present
+    set_idt_entry(12, &stack_segment_fault_handler, 0x08, 0x8e);        // Stack segment fault
+    set_idt_entry(13, &general_protection_fault_handler, 0x08, 0x8e);   // General protection fault
+    set_idt_entry(14, &page_fault_handler, 0x08, 0x8e);                 // Page fault
+    // Skip 15 (reserved)
+    set_idt_entry(16, &x87_floating_point_handler, 0x08, 0x8e);         // x87 FPU error
+    set_idt_entry(17, &alignment_check_handler, 0x08, 0x8e);            // Alignment check
+    set_idt_entry(18, &machine_check_handler, 0x08, 0x8e);              // Machine check
+    set_idt_entry(19, &simd_floating_point_handler, 0x08, 0x8e);        // SIMD FPU error
+    set_idt_entry(20, &virtualization_exception_handler, 0x08, 0x8e);   // Virtualization
+    
+    // Set remaining exception handlers (21-31) to default
+    for (int i = 21; i < 32; i++) {
         set_idt_entry(i, &default_interrupt_handler, 0x08, 0x8e);
     }
     
@@ -172,6 +202,18 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     }
     
     idt_load();
+    
+    // Set up syscall interrupt (0x80)
+    set_idt_entry(0x80, &syscall_interrupt_handler, 0x08, 0x8E);  // 0x8E = DPL 0 (kernel accessible)
+    
+    // Set up process exit interrupt (INT 3 - breakpoint)
+    set_idt_entry(3, &default_interrupt_handler, 0x08, 0x8E);
+    
+    // Initialize syscall system
+    syscalls_init();
+    
+    // Initialize process management system
+    process_init();
     
     register_interrupt_handler(33, &irq1_handler);  // IRQ1 (keyboard) = interrupt 33
     
@@ -183,19 +225,35 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     interrupts_enable();
     vga_printf("Keyboard enabled\n");
     
+    // Test syscall system (using direct calls)
+    test_syscalls();
+    
+    // Test 0x80 interrupt directly from kernel code
+    /*vga_printf("[TEST] Testing int 0x80 directly from kernel...\n");
+    long result_direct = 0;
+    __asm__ volatile (
+        "mov $20, %%rax\n\t"        // getpid syscall number
+        "int $0x80\n\t"             // trigger interrupt
+        "mov %%rax, %0\n\t"         // get result
+        : "=m" (result_direct)
+        :
+        : "rax", "memory"
+    );
+    vga_printf("[TEST] int 0x80 from kernel returned: %ld\n", result_direct);
+    */
 
     CLDTEST_INIT();
     
     // Run all tests:
     //CLDTEST_RUN_ALL();
     
-    vga_printf("Running memory tests...\n");
+    //vga_printf("Running memory tests...\n");
     CLDTEST_RUN_SUITE("memory_tests");
-    vga_printf("Running malloc tests...\n");
+    //vga_printf("Running malloc tests...\n");
     CLDTEST_RUN_SUITE("malloc_tests");
-    vga_printf("Running cldramfs tests...\n");
+    //vga_printf("Running cldramfs tests...\n");
     CLDTEST_RUN_SUITE("cldramfs_tests");
-    vga_printf("Running tty tests...\n");
+    //vga_printf("Running tty tests...\n");
     CLDTEST_RUN_SUITE("tty_tests");
     
     vga_printf("\n=== SYSTEM READY ===\n");
@@ -211,6 +269,9 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     // Try to load ramfs from multiboot modules
     if (load_ramfs_from_modules(mb2_info) == 0) {
+        // ELF loader testing disabled during boot - use shell instead
+        vga_printf("ELF loader ready - test with 'exec' command in shell\n");
+        
         // Initialize shell
         cldramfs_shell_init();
         shell_active = 1;

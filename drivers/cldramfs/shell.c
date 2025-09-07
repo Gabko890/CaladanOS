@@ -144,6 +144,15 @@ int cldramfs_shell_process_command(const char *command_line) {
             vga_printf("cp: usage: cp <source> <destination>\n");
         }
     }
+    else if (strncmp(cmd, "exec", 4) == 0 && (cmd[4] == '\0' || cmd[4] == ' ')) {
+        char *arg = find_arg(cmd);
+        if (arg) {
+            cldramfs_cmd_exec(arg);
+        } else {
+            vga_printf("exec: missing ELF file name\n");
+            vga_printf("usage: exec <filename.o>\n");
+        }
+    }
     else if (strcmp(cmd, "help") == 0) {
         vga_printf("Available commands:\n");
         vga_printf("  ls [path]           - List directory contents\n");
@@ -157,6 +166,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  mv <src> <dst>      - Move/rename file\n");
         vga_printf("  echo [text]         - Print text to stdout\n");
         vga_printf("  echo [text] > file  - Write text to file\n");
+        vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
         vga_printf("  echo [text] >> file - Append text to file\n");
         vga_printf("  clear               - Clear screen\n");
         vga_printf("  exit                - Exit shell\n");
