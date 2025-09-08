@@ -14,9 +14,9 @@
 #include <dlmalloc/malloc.h>
 #include <kmalloc.h>
 #include <string.h>
-#include "../drivers/cldramfs/cldramfs.h"
-#include "../drivers/cldramfs/shell.h"
-#include "../drivers/cldramfs/tty.h"
+#include <cldramfs/cldramfs.h>
+#include <cldramfs/shell.h>
+#include <cldramfs/tty.h>
 #include <syscalls.h>
 #include <syscall_test.h>
 #include <elf_loader.h>
@@ -125,7 +125,7 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     }
 
     // Identity mapping - using physical page table access
-    for (uint64_t addr = 0; addr < (16ULL << 30); addr += (2ULL << 20)) {
+    for (u64 addr = 0; addr < (16ULL << 30); addr += (2ULL << 20)) {
         if (!mm_map(addr, addr, PTE_RW | PTE_HUGE, PAGE_2M)) {
             vga_printf("identity map failure at 0x%llx\n", addr);
             __asm__ volatile("cli; hlt");
@@ -133,11 +133,11 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     }
 
     // Kernel virtual mapping - using physical page table access
-    uint64_t kernel_phys = 0x00200000ULL;   // KERNEL_PMA
-    uint64_t kernel_virt = 0xFFFFFFFF80000000ULL; // KERNEL_VMA
-    uint64_t kernel_size = 4ULL << 20; // e.g. 4 MiB kernel
+    u64 kernel_phys = 0x00200000ULL;   // KERNEL_PMA
+    u64 kernel_virt = 0xFFFFFFFF80000000ULL; // KERNEL_VMA
+    u64 kernel_size = 4ULL << 20; // e.g. 4 MiB kernel
 
-    for (uint64_t off = 0; off < kernel_size; off += 0x1000) {
+    for (u64 off = 0; off < kernel_size; off += 0x1000) {
         if (!mm_map(kernel_virt + off, kernel_phys + off, PTE_RW | PTE_PRESENT, PAGE_4K)) {
             vga_printf("kernel heap map failure\n");
             __asm__ volatile("cli; hlt");
@@ -228,32 +228,13 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     // Test syscall system (using direct calls)
     test_syscalls();
     
-    // Test 0x80 interrupt directly from kernel code
-    /*vga_printf("[TEST] Testing int 0x80 directly from kernel...\n");
-    long result_direct = 0;
-    __asm__ volatile (
-        "mov $20, %%rax\n\t"        // getpid syscall number
-        "int $0x80\n\t"             // trigger interrupt
-        "mov %%rax, %0\n\t"         // get result
-        : "=m" (result_direct)
-        :
-        : "rax", "memory"
-    );
-    vga_printf("[TEST] int 0x80 from kernel returned: %ld\n", result_direct);
-    */
-
     CLDTEST_INIT();
     
-    // Run all tests:
     //CLDTEST_RUN_ALL();
     
-    //vga_printf("Running memory tests...\n");
     CLDTEST_RUN_SUITE("memory_tests");
-    //vga_printf("Running malloc tests...\n");
     CLDTEST_RUN_SUITE("malloc_tests");
-    //vga_printf("Running cldramfs tests...\n");
     CLDTEST_RUN_SUITE("cldramfs_tests");
-    //vga_printf("Running tty tests...\n");
     CLDTEST_RUN_SUITE("tty_tests");
     
     vga_printf("\n=== SYSTEM READY ===\n");
@@ -276,7 +257,6 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         cldramfs_shell_init();
         shell_active = 1;
         
-        //vga_printf("\n=== SHELL ACTIVE ===\n");
         vga_attr(0x07);
         
         // Main shell loop

@@ -3,6 +3,8 @@
 #include <string.h>
 #include <process.h>
 
+#include <cldattrs.h>
+
 // Syscall table
 static struct syscall_entry syscall_table[MAX_SYSCALLS];
 static u32 registered_syscalls = 0;
@@ -91,7 +93,7 @@ long syscall_dispatch(u32 syscall_num, long arg1, long arg2, long arg3, long arg
 }
 
 // Default syscall implementations
-long sys_write(long fd, long buf, long count, long unused1, long unused2, long unused3) {
+long sys_write(long fd, long buf, long count, long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3) {
     // Simple implementation - just write to VGA console for fd 1 (stdout)
     if (fd == 1) {
         const char* str = (const char*)buf;
@@ -103,7 +105,7 @@ long sys_write(long fd, long buf, long count, long unused1, long unused2, long u
     return -1; // Invalid fd
 }
 
-long sys_read(long fd, long buf, long count, long unused1, long unused2, long unused3) {
+long sys_read(long fd, long buf, long count, long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3) {
     // Stub implementation - not implemented yet
     vga_printf("[SYSCALL] sys_read not implemented (fd=%ld, buf=%p, count=%ld)\n", fd, (void*)buf, count);
     return 0;
@@ -119,7 +121,7 @@ volatile void* exit_jump_target = NULL;
 // Assembly function to perform context switch (we'll implement this)
 extern void process_context_switch_exit(u64 exit_status);
 
-long sys_exit(long status, long unused1, long unused2, long unused3, long unused4, long unused5) {
+long sys_exit(long status, long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3, long A_UNUSED unused4, long A_UNUSED unused5) {
     vga_printf("[SYSCALL] sys_exit called with status: %ld\n", status);
     
     process_t* current = process_get_current();
@@ -152,7 +154,7 @@ long sys_exit(long status, long unused1, long unused2, long unused3, long unused
     }
 }
 
-long sys_getpid(long unused1, long unused2, long unused3, long unused4, long unused5, long unused6) {
+long sys_getpid(long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3, long A_UNUSED unused4, long A_UNUSED unused5, long A_UNUSED unused6) {
     process_t* current = process_get_current();
     if (current) {
         return current->pid;
