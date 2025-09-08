@@ -6,29 +6,29 @@
 #include <portio.h>
 
 
-static volatile char* vga_addr = (volatile char*) 0xb8000;
-static Cursor cursor = {0, 0};
+static volatile char *vga_addr = (volatile char *) 0xb8000;
+static struct cursor cursor = {0, 0};
 static u8 arrt = 0x07;
 
 // ANSI escape sequence parsing state
-typedef enum {
+enum ansi_state {
     ANSI_STATE_NORMAL,
     ANSI_STATE_ESCAPE,
     ANSI_STATE_CSI
-} ansi_state_t;
+};
 
-static ansi_state_t ansi_state = ANSI_STATE_NORMAL;
+static enum ansi_state ansi_state = ANSI_STATE_NORMAL;
 static char ansi_buffer[16];
 static int ansi_buffer_pos = 0;
 
 
 void vga_update_cursor(int x, int y) {
-	u16 pos = y * VGA_WIDTH + x;
+    u16 pos = y * VGA_WIDTH + x;
 
-	outb(0x3D4, 0x0F);
-	outb(0x3D5, (u8) (pos & 0xFF));
-	outb(0x3D4, 0x0E);
-	outb(0x3D5, (u8) ((pos >> 8) & 0xFF));
+    outb(0x3D4, 0x0F);
+    outb(0x3D5, (u8) (pos & 0xFF));
+    outb(0x3D4, 0x0E);
+    outb(0x3D5, (u8) ((pos >> 8) & 0xFF));
 }
 
 //  ===================== output =========================
@@ -348,7 +348,7 @@ int vga_printf(const char *fmt, ...) {
                 } break;
 
                 case 's': {
-                    const char *s = va_arg(args, const char*);
+                    const char *s = va_arg(args, const char *);
                     while (*s) { vga_putchar(*s++); count++; }
                 } break;
 

@@ -13,7 +13,6 @@ extern void tty_global_reset_line(void);
 static int shell_running = 0;
 
 void cldramfs_shell_init(void) {
-    // Note: ramfs should already be initialized by now
     tty_global_init();
     shell_running = 1;
     

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <cldattrs.h>
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -19,11 +20,11 @@ typedef int64_t i64;
 typedef __int128 i128;
 typedef unsigned __int128 u128;
 
-struct memory_region {
+struct A_PACKED memory_region {
     u64 addr_start;
     u64 addr_end;
     u64 size;
     u16 flags;
-} __attribute__((packed));
+};
 
 #endif

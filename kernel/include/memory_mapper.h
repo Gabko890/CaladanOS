@@ -26,7 +26,7 @@
  * On success the selected memory_region in minfo is shrunk so the reserved
  * block is no longer available as system RAM.
  */
-u64 mm_init(struct memory_info* minfo, u64 table_virt_base);
+u64 mm_init(struct memory_info_t *minfo, u64 table_virt_base);
 
 /* Enable virtual access to page tables after CR3 switch and mappings are set up.
  * Must be called after mm_init, identity mapping, kernel mapping, and CR3 switch.

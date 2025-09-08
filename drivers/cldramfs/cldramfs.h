@@ -2,22 +2,23 @@
 #define CLDRAMFS_H
 
 #include <cldtypes.h>
+#include <cldattrs.h>
 
-typedef enum { FILE_NODE, DIR_NODE } NodeType;
+enum node_type { FILE_NODE, DIR_NODE };
 
-typedef struct Node {
+struct node {
     char *name;
-    NodeType type;
+    enum node_type type;
     char *content;
     u32 content_size;
-    struct Node **children;
+    struct node **children;
     u32 child_count;
     u32 child_capacity;
-    struct Node *parent;
-} Node;
+    struct node *parent;
+};
 
 // CPIO archive handling
-struct cpio_header {
+struct A_PACKED cpio_header {
     char c_magic[6];
     char c_ino[8];
     char c_mode[8];
@@ -32,21 +33,21 @@ struct cpio_header {
     char c_rdevminor[8];
     char c_namesize[8];
     char c_chksum[8];
-} __attribute__((packed));
+};
 
 // Global ramfs state
-extern Node *ramfs_root;
-extern Node *ramfs_cwd;
+extern struct node *ramfs_root;
+extern struct node *ramfs_cwd;
 
 // Core ramfs functions
 void cldramfs_init(void);
 int cldramfs_load_cpio(void *cpio_data, u32 cpio_size);
-Node* cldramfs_create_node(const char *name, NodeType type, Node *parent);
-Node* cldramfs_find_child(Node *dir, const char *name);
-void cldramfs_add_child(Node *parent, Node *child);
-Node* cldramfs_resolve_path_dir(const char *path, int create_missing);
-Node* cldramfs_resolve_path_file(const char *path, int create_dirs);
-void cldramfs_free_node(Node *node);
+struct node *cldramfs_create_node(const char *name, enum node_type type, struct node *parent);
+struct node *cldramfs_find_child(struct node *dir, const char *name);
+void cldramfs_add_child(struct node *parent, struct node *child);
+struct node *cldramfs_resolve_path_dir(const char *path, int create_missing);
+struct node *cldramfs_resolve_path_file(const char *path, int create_dirs);
+void cldramfs_free_node(struct node *node);
 
 // Shell command implementations  
 void cldramfs_cmd_ls(const char *arg);

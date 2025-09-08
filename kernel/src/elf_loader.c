@@ -399,7 +399,6 @@ int elf_execute(loaded_elf_t* loaded, const char* program_name) {
 
 // Executable memory allocator
 // For now, just use regular kmalloc since heap pages should be executable
-// TODO: Implement proper executable heap if needed
 void* kmalloc_executable(size_t size) {
     return kmalloc(size);
 }

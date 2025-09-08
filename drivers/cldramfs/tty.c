@@ -106,10 +106,8 @@ int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
                 }
                 return 0;
             case US_ARROW_UP:
-                // TODO: History navigation
                 return 0;
             case US_ARROW_DOWN:
-                // TODO: History navigation
                 return 0;
         }
         return 0;
@@ -153,7 +151,6 @@ int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
             return 0;
             
         case US_TAB:
-            // TODO: Auto-completion
             return 0;
             
         case US_ESC:

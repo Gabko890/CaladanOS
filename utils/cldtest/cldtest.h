@@ -25,24 +25,24 @@
 #define VGA_COLOR_YELLOW        0x0E
 #define VGA_COLOR_WHITE         0x0F
 
-typedef void (*test_func_t)(void);
-typedef void (*suite_init_func_t)(void);
+typedef void (*test_func)(void);
+typedef void (*suite_init_func)(void);
 
-typedef struct {
+struct test_case {
     const char *name;
-    test_func_t func;
+    test_func func;
     const char *suite_name;
-} test_case_t;
+};
 
-typedef struct {
+struct test_suite {
     const char *name;
-    suite_init_func_t init_func;
+    suite_init_func init_func;
     u32 test_count;
     u32 passed_count;
-} test_suite_t;
+};
 
-extern test_case_t all_tests[MAX_TESTS];
-extern test_suite_t test_suites[MAX_SUITES];
+extern struct test_case all_tests[MAX_TESTS];
+extern struct test_suite test_suites[MAX_SUITES];
 extern u32 total_test_count;
 extern u32 suite_count;
 extern const char *current_suite;
@@ -79,8 +79,8 @@ extern u8 current_test_failed;
 #define CLDTEST_RUN_TEST(__testname__) cldtest_run_test(__testname__)
 #define CLDTEST_RUN_SUITE(__suitename__) cldtest_run_suite(__suitename__)
 
-void cldtest_register_suite(const char *name, suite_init_func_t init_func);
-void cldtest_register_test(const char *name, test_func_t func, const char *suite_name);
+void cldtest_register_suite(const char *name, suite_init_func init_func);
+void cldtest_register_test(const char *name, test_func func, const char *suite_name);
 void cldtest_run_all(void);
 void cldtest_run_suite(const char *suite_name);
 void cldtest_run_test(const char *test_name);

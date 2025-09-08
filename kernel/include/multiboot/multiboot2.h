@@ -3,6 +3,7 @@
 
 #include <cldtypes.h>
 #include <stddef.h>
+#include <cldattrs.h>
 
 #define MULTIBOOT2_MAGIC 0x36d76289
 
@@ -30,46 +31,46 @@
 #define MULTIBOOT_TAG_TYPE_EFI64_IH         20
 #define MULTIBOOT_TAG_TYPE_LOAD_BASE_ADDR   21
 
-struct multiboot_tag {
+struct A_PACKED multiboot_tag {
     u32 type;
     u32 size;
-} __attribute__((packed));
+};
 
-struct multiboot_tag_string {
+struct A_PACKED multiboot_tag_string {
     u32 type;
     u32 size;
     char string[0];
-} __attribute__((packed));
+};
 
-struct multiboot_tag_module {
+struct A_PACKED multiboot_tag_module {
     u32 type;
     u32 size;
     u32 mod_start;
     u32 mod_end;
     char cmdline[0];
-} __attribute__((packed));
+};
 
-struct multiboot_tag_basic_meminfo {
+struct A_PACKED multiboot_tag_basic_meminfo {
     u32 type;
     u32 size;
     u32 mem_lower;
     u32 mem_upper;
-} __attribute__((packed));
+};
 
-struct multiboot_mmap_entry {
+struct A_PACKED multiboot_mmap_entry {
     u64 addr;
     u64 len;
     u32 type;
     u32 zero;
-} __attribute__((packed));
+};
 
-struct multiboot_tag_mmap {
+struct A_PACKED multiboot_tag_mmap {
     u32 type;
     u32 size;
     u32 entry_size;
     u32 entry_version;
     struct multiboot_mmap_entry entries[0];
-} __attribute__((packed));
+};
 
 // Memory map types
 #define MULTIBOOT_MEMORY_AVAILABLE          1
@@ -83,27 +84,27 @@ struct multiboot_tag_mmap {
 
 // Clean data structures for programmatic access
 
-struct mb2_memory_map {
+struct A_PACKED mb2_memory_map {
     size_t count;
     struct memory_region regions[MB2_MAX_MEMORY_REGIONS];
-} __attribute__((packed));
+};
 
-struct mb2_modules_list {
+struct A_PACKED mb2_modules_list {
     u8 count;
-    struct multiboot_tag_module* modules[MB2_MAX_MODULES];
-} __attribute__((packed));
+    struct multiboot_tag_module *modules[MB2_MAX_MODULES];
+};
 
 // Function declarations
 int  multiboot2_parse(u32 magic, u32 mb2_info);
 void multiboot2_print_basic_info(u32 mb2_info);
-struct multiboot_tag* multiboot2_find_tag(u32 mb2_info, u32 type);
+struct multiboot_tag *multiboot2_find_tag(u32 mb2_info, u32 type);
 void multiboot2_print_modules(u32 mb2_info);
 void multiboot2_print_memory_map(u32 mb2_info);
-struct multiboot_tag_mmap* multiboot2_get_memory_map(u32 mb2_info);
-size_t multiboot2_get_memory_map_entries(struct multiboot_tag_mmap* mmap_tag);
+struct multiboot_tag_mmap *multiboot2_get_memory_map(u32 mb2_info);
+size_t multiboot2_get_memory_map_entries(struct multiboot_tag_mmap *mmap_tag);
 
-void multiboot2_get_modules(u32 mb2_info, struct mb2_modules_list* result);
-void multiboot2_get_memory_regions(u32 mb2_info, struct mb2_memory_map* out_map);
+void multiboot2_get_modules(u32 mb2_info, struct mb2_modules_list *result);
+void multiboot2_get_memory_regions(u32 mb2_info, struct mb2_memory_map *out_map);
 
 #endif // MULTIBOOT2_H
 

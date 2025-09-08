@@ -7,11 +7,11 @@
 #define MEMORY_INFO_SYSTEM_RAM 0x01
 #define MEMORY_INFO_SYSTEM_FRAMEBUFFER 0x02
 
-struct memory_info {
+struct memory_info_t {
     size_t count;
     struct memory_region regions[MEMORY_INFO_MAX];
 } ;//__attribute__((aligned(16)));//__attribute__((packed));
 
-struct memory_info get_available_memory(u32 mb2_info);
+struct memory_info_t get_available_memory(u32 mb2_info);
 
 #endif //  MEMORY_INFO_H

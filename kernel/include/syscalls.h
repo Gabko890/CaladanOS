@@ -21,7 +21,7 @@ typedef long (*syscall_handler_t)(long arg1, long arg2, long arg3, long arg4, lo
 // Syscall registration structure
 struct syscall_entry {
     syscall_handler_t handler;
-    const char* name;           // For debugging/logging
+    const char *name;           // For debugging/logging
     u8 arg_count;              // Number of arguments expected
 };
 
@@ -29,10 +29,10 @@ struct syscall_entry {
 void syscalls_init(void);
 
 // Register a new syscall
-int register_syscall(u32 syscall_num, syscall_handler_t handler, const char* name, u8 arg_count);
+int register_syscall(u32 syscall_num, syscall_handler_t handler, const char *name, u8 arg_count);
 
 // Get syscall info for debugging
-const struct syscall_entry* get_syscall_info(u32 syscall_num);
+const struct syscall_entry *get_syscall_info(u32 syscall_num);
 
 // Default syscall handlers for demonstration
 long sys_write(long fd, long buf, long count, long unused1, long unused2, long unused3);

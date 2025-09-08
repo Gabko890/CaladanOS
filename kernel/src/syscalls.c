@@ -106,7 +106,6 @@ long sys_write(long fd, long buf, long count, long A_UNUSED unused1, long A_UNUS
 }
 
 long sys_read(long fd, long buf, long count, long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3) {
-    // Stub implementation - not implemented yet
     vga_printf("[SYSCALL] sys_read not implemented (fd=%ld, buf=%p, count=%ld)\n", fd, (void*)buf, count);
     return 0;
 }

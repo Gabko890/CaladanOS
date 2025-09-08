@@ -1,8 +1,8 @@
 #include "cldtest.h"
 #include <string.h>
 
-test_case_t all_tests[MAX_TESTS];
-test_suite_t test_suites[MAX_SUITES];
+struct test_case all_tests[MAX_TESTS];
+struct test_suite test_suites[MAX_SUITES];
 u32 total_test_count = 0;
 u32 suite_count = 0;
 const char *current_suite = "";
@@ -14,7 +14,7 @@ void cldtest_clear_registry(void) {
     suite_count = 0;
 }
 
-void cldtest_register_suite(const char *name, suite_init_func_t init_func) {
+void cldtest_register_suite(const char *name, suite_init_func init_func) {
     if (suite_count >= MAX_SUITES) {
         return;
     }
@@ -33,7 +33,7 @@ void cldtest_register_suite(const char *name, suite_init_func_t init_func) {
     suite_count++;
 }
 
-void cldtest_register_test(const char *name, test_func_t func, const char *suite_name) {
+void cldtest_register_test(const char *name, test_func func, const char *suite_name) {
     if (total_test_count >= MAX_TESTS) {
         return;
     }

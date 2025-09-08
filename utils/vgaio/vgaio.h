@@ -7,10 +7,10 @@
 #define VGA_HEIGHT 25
 #define VGA_WIDTH  80
 
-typedef struct {
+struct cursor {
     u8 x;
     u8 y;
-} Cursor;
+};
 
 void vga_putchar(char);
 void vga_attr(u8);
@@ -22,6 +22,6 @@ void vga_move_cursor_left(void);
 void vga_move_cursor_right(void);
 void vga_move_cursor_home(void);
 
-int vga_printf(const char*, ...);
+int vga_printf(const char *, ...);
 
 #endif //  vgaio.h

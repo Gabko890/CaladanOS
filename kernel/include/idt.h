@@ -1,6 +1,7 @@
 #include <cldtypes.h>
+#include <cldattrs.h>
 
-struct idt_entry {
+struct A_PACKED idt_entry_t {
     u16 offset_low;     // bits 0..15 of handler address
     u16 selector;       // code segment selector (usually 0x08 for kernel CS)
     u8  ist;            // bits 0..2 = IST, rest = 0
@@ -8,12 +9,12 @@ struct idt_entry {
     u16 offset_mid;     // bits 16..31 of handler address
     u32 offset_high;    // bits 32..63 of handler address
     u32 zero;           // reserved
-} __attribute__((packed));
+};
 
-struct idt_ptr {
+struct A_PACKED idt_ptr_t {
     u16 limit;
     u64 base;
-} __attribute__((packed));
+};
 
 
 #define IDT_ENTRIES 256

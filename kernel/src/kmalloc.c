@@ -8,7 +8,6 @@
 // dlmalloc memory space for kernel heap
 static mspace kernel_mspace = 0;
 
-// Simple allocator (temporary fallback)
 static free_block_t* g_free_list = NULL;
 
 #define MIN_BLOCK_SIZE sizeof(free_block_t)
@@ -99,13 +98,12 @@ void kmalloc_init(struct memory_info* minfo) {
         return;
     }
     
-    // TODO: dlmalloc hangs with large heaps - temporarily use simple allocator
     // Initialize simple free list for now
     g_free_list = (free_block_t*)heap_info->base_virt;
     g_free_list->size = heap_info->total_size;
     g_free_list->next = NULL;
     
-    vga_printf("kmalloc_init: Dynamic allocator ready (temporary simple allocator)\n");
+    vga_printf("kmalloc_init: Dynamic allocator ready\n");
 }
 
 void* kmalloc(size_t size) {
