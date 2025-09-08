@@ -72,6 +72,18 @@ struct A_PACKED multiboot_tag_mmap {
     struct multiboot_mmap_entry entries[0];
 };
 
+struct A_PACKED multiboot_tag_framebuffer {
+    u32 type;
+    u32 size;
+    u64 framebuffer_addr;
+    u32 framebuffer_pitch;
+    u32 framebuffer_width;
+    u32 framebuffer_height;
+    u8 framebuffer_bpp;
+    u8 framebuffer_type;
+    u16 reserved;
+};
+
 // Memory map types
 #define MULTIBOOT_MEMORY_AVAILABLE          1
 #define MULTIBOOT_MEMORY_RESERVED           2

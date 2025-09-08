@@ -4,9 +4,9 @@
 #include <ps2.h>
 #include "cldramfs.h"
 
-static TTY main_tty;
+static struct tty main_tty;
 
-void tty_init(TTY *tty) {
+void tty_init(struct tty *tty) {
     tty->buffer_pos = 0;
     tty->cursor_pos = 0;
     tty->history_count = 0;
@@ -16,7 +16,7 @@ void tty_init(TTY *tty) {
     tty->buffer[0] = '\0';
 }
 
-void tty_reset_line(TTY *tty) {
+void tty_reset_line(struct tty *tty) {
     tty->buffer_pos = 0;
     tty->cursor_pos = 0;
     tty->buffer[0] = '\0';
@@ -86,7 +86,7 @@ int is_printable_key(u8 scancode) {
     return scancode_to_char(scancode, 0) != 0;
 }
 
-int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
+int tty_handle_key(struct tty *tty, u8 scancode, int is_extended) {
     u128 keyarr = ps2_keyarr();
     int shift = (keyarr & ((u128)1 << 0x2A)) || (keyarr & ((u128)1 << 0x36)); // Left or right shift
     
@@ -192,11 +192,11 @@ int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
     }
 }
 
-int tty_is_line_ready(TTY *tty) {
+int tty_is_line_ready(struct tty *tty) {
     return tty->buffer_pos > 0 && tty->buffer[tty->buffer_pos - 1] == '\0';
 }
 
-char* tty_get_line(TTY *tty) {
+char* tty_get_line(struct tty *tty) {
     return tty->buffer;
 }
 
@@ -217,9 +217,9 @@ void tty_print_prompt(void) {
         vga_printf("[ / ] ");
     } else {
         // Build path carefully
-        Node *nodes[10];  // Limit depth for safety
+        struct node *nodes[10];  // Limit depth for safety
         int depth = 0;
-        Node *current = ramfs_cwd;
+        struct node *current = ramfs_cwd;
         
         // Collect path components
         while (current && current != ramfs_root && depth < 10) {
@@ -249,7 +249,7 @@ void tty_print_prompt(void) {
     vga_attr(0x07); // Reset to white
 }
 
-// Global TTY interface functions
+// Global struct tty interface functions
 void tty_global_init(void) {
     tty_init(&main_tty);
 }

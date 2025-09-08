@@ -123,7 +123,7 @@ extern void process_context_switch_exit(u64 exit_status);
 long sys_exit(long status, long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3, long A_UNUSED unused4, long A_UNUSED unused5) {
     vga_printf("[SYSCALL] sys_exit called with status: %ld\n", status);
     
-    process_t* current = process_get_current();
+    struct process_t* current = process_get_current();
     
     if (current) {
         vga_printf("[SYSCALL] Process %u exit with status: %ld\n", current->pid, status);
@@ -154,7 +154,7 @@ long sys_exit(long status, long A_UNUSED unused1, long A_UNUSED unused2, long A_
 }
 
 long sys_getpid(long A_UNUSED unused1, long A_UNUSED unused2, long A_UNUSED unused3, long A_UNUSED unused4, long A_UNUSED unused5, long A_UNUSED unused6) {
-    process_t* current = process_get_current();
+    struct process_t* current = process_get_current();
     if (current) {
         return current->pid;
     } else {

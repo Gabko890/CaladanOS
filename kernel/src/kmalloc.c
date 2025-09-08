@@ -8,9 +8,9 @@
 // dlmalloc memory space for kernel heap
 static mspace kernel_mspace = 0;
 
-static free_block_t* g_free_list = NULL;
+static struct free_block* g_free_list = NULL;
 
-#define MIN_BLOCK_SIZE sizeof(free_block_t)
+#define MIN_BLOCK_SIZE sizeof(struct free_block)
 #define ALIGNMENT 16
 
 static size_t align_size(size_t size) {
@@ -18,12 +18,12 @@ static size_t align_size(size_t size) {
 }
 
 // Forward declarations
-static void insert_free_block(free_block_t* block);
+static void insert_free_block(struct free_block* block);
 static void merge_free_blocks(void);
 
-static free_block_t* find_free_block(size_t size) {
-    free_block_t* current = g_free_list;
-    free_block_t* prev = NULL;
+static struct free_block* find_free_block(size_t size) {
+    struct free_block* current = g_free_list;
+    struct free_block* prev = NULL;
 
     while (current) {
         if (current->size >= size) {
@@ -40,9 +40,9 @@ static free_block_t* find_free_block(size_t size) {
     return NULL;
 }
 
-static void split_block(free_block_t* block, size_t size) {
+static void split_block(struct free_block* block, size_t size) {
     if (block->size > size + MIN_BLOCK_SIZE) {
-        free_block_t* new_block = (free_block_t*)((char*)block + size);
+        struct free_block* new_block = (struct free_block*)((char*)block + size);
         new_block->size = block->size - size;
         new_block->next = NULL;
         
@@ -53,7 +53,7 @@ static void split_block(free_block_t* block, size_t size) {
 }
 
 static void merge_free_blocks(void) {
-    free_block_t* current = g_free_list;
+    struct free_block* current = g_free_list;
     
     while (current && current->next) {
         char* current_end = (char*)current + current->size;
@@ -66,12 +66,12 @@ static void merge_free_blocks(void) {
     }
 }
 
-static void insert_free_block(free_block_t* block) {
+static void insert_free_block(struct free_block* block) {
     if (!g_free_list || (uintptr_t)block < (uintptr_t)g_free_list) {
         block->next = g_free_list;
         g_free_list = block;
     } else {
-        free_block_t* current = g_free_list;
+        struct free_block* current = g_free_list;
         while (current->next && (uintptr_t)current->next < (uintptr_t)block) {
             current = current->next;
         }
@@ -82,7 +82,7 @@ static void insert_free_block(free_block_t* block) {
 }
 
 
-void kmalloc_init(struct memory_info* minfo) {
+void kmalloc_init(struct memory_info_t* minfo) {
     vga_printf("kmalloc_init: Initializing dynamic allocator\n");
     
     // Initialize kernel heap using new kheap module
@@ -92,14 +92,14 @@ void kmalloc_init(struct memory_info* minfo) {
     }
     
     // Get heap info
-    kheap_info_t* heap_info = kheap_get_info();
+    struct kheap_info* heap_info = kheap_get_info();
     if (!heap_info) {
         vga_printf("kmalloc_init: Failed to get heap info\n");
         return;
     }
     
     // Initialize simple free list for now
-    g_free_list = (free_block_t*)heap_info->base_virt;
+    g_free_list = (struct free_block*)heap_info->base_virt;
     g_free_list->size = heap_info->total_size;
     g_free_list->next = NULL;
     
@@ -107,7 +107,7 @@ void kmalloc_init(struct memory_info* minfo) {
 }
 
 void* kmalloc(size_t size) {
-    kheap_info_t* heap_info = kheap_get_info();
+    struct kheap_info* heap_info = kheap_get_info();
     if (!heap_info || !heap_info->initialized || size == 0) {
         return NULL;
     }
@@ -117,7 +117,7 @@ void* kmalloc(size_t size) {
         aligned_size = MIN_BLOCK_SIZE;
     }
     
-    free_block_t* block = find_free_block(aligned_size);
+    struct free_block* block = find_free_block(aligned_size);
     if (!block) {
         return NULL;
     }
@@ -132,7 +132,7 @@ void* kmalloc(size_t size) {
 
 
 void kfree(void* ptr) {
-    kheap_info_t* heap_info = kheap_get_info();
+    struct kheap_info* heap_info = kheap_get_info();
     if (!ptr || !heap_info || !heap_info->initialized) {
         return;
     }
@@ -145,7 +145,7 @@ void kfree(void* ptr) {
         return;
     }
     
-    free_block_t* free_block = (free_block_t*)block_start;
+    struct free_block* free_block = (struct free_block*)block_start;
     free_block->size = block_size;
     
     heap_info->used_size -= block_size;
@@ -181,7 +181,7 @@ void* krealloc(void* ptr, size_t size) {
 
 
 u64 kmalloc_virt_to_phys(void* virt_ptr) {
-    kheap_info_t* heap_info = kheap_get_info();
+    struct kheap_info* heap_info = kheap_get_info();
     if (!virt_ptr || !heap_info || !heap_info->initialized) {
         return 0;
     }
@@ -199,13 +199,13 @@ u64 kmalloc_virt_to_phys(void* virt_ptr) {
 
 
 u64 kmalloc_get_kernel_heap_base(void) {
-    kheap_info_t* heap_info = kheap_get_info();
+    struct kheap_info* heap_info = kheap_get_info();
     return heap_info ? (u64)heap_info->base_virt : 0;
 }
 
 
 void kmalloc_debug_info(void) {
-    kheap_info_t* heap_info = kheap_get_info();
+    struct kheap_info* heap_info = kheap_get_info();
     if (!heap_info) {
         vga_printf("=== Kernel Heap Not Initialized ===\n");
         return;

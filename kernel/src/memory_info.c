@@ -4,8 +4,8 @@
 #include <ldinfo.h>
 #include <memory_info.h>
 
-struct memory_info get_available_memory(u32 mb2_info) {
-    struct memory_info result = {0};
+struct memory_info_t get_available_memory(u32 mb2_info) {
+    struct memory_info_t result = {0};
     
     u64 last_module_end = 0;
     struct multiboot_tag *tag;

@@ -17,7 +17,7 @@ static inline void small_delay(void) {
     }
 }
 
-static int elf_validate_header(const elf64_ehdr_t* header) {
+static int elf_validate_header(const struct elf64_ehdr_t* header) {
     // Check ELF magic number
     if (header->e_ident[0] != 0x7F ||
         header->e_ident[1] != 'E' ||
@@ -60,21 +60,21 @@ static int elf_validate_header(const elf64_ehdr_t* header) {
     return 0;
 }
 
-static const char* elf_get_section_name(const loaded_elf_t* loaded, u32 name_offset) {
+static const char* elf_get_section_name(const struct loaded_elf* loaded, u32 name_offset) {
     if (!loaded->string_table) {
         return "unknown";
     }
     return loaded->string_table + name_offset;
 }
 
-static int elf_apply_relocations(loaded_elf_t* loaded, elf64_shdr_t* rela_section) {
-    elf64_rela_t* relocations = (elf64_rela_t*)((u8*)loaded->base_addr + rela_section->sh_offset);
-    u32 num_relocations = rela_section->sh_size / sizeof(elf64_rela_t);
+static int elf_apply_relocations(struct loaded_elf* loaded, struct elf64_shdr_t* rela_section) {
+    struct elf64_rela_t* relocations = (struct elf64_rela_t*)((u8*)loaded->base_addr + rela_section->sh_offset);
+    u32 num_relocations = rela_section->sh_size / sizeof(struct elf64_rela_t);
     
     // Get the target section and symbol table
-    elf64_shdr_t* target_section = &loaded->sections[rela_section->sh_info];
-    elf64_shdr_t* symtab_section = &loaded->sections[rela_section->sh_link];
-    elf64_sym_t* symbols = (elf64_sym_t*)((u8*)loaded->base_addr + symtab_section->sh_offset);
+    struct elf64_shdr_t* target_section = &loaded->sections[rela_section->sh_info];
+    struct elf64_shdr_t* symtab_section = &loaded->sections[rela_section->sh_link];
+    struct elf64_sym_t* symbols = (struct elf64_sym_t*)((u8*)loaded->base_addr + symtab_section->sh_offset);
     
     u8* target_data = (u8*)loaded->exec_base + target_section->sh_addr;
     
@@ -82,16 +82,16 @@ static int elf_apply_relocations(loaded_elf_t* loaded, elf64_shdr_t* rela_sectio
                num_relocations, elf_get_section_name(loaded, target_section->sh_name));
     
     for (u32 i = 0; i < num_relocations; i++) {
-        elf64_rela_t* rel = &relocations[i];
+        struct elf64_rela_t* rel = &relocations[i];
         u32 sym_idx = ELF64_R_SYM(rel->r_info);
         u32 type = ELF64_R_TYPE(rel->r_info);
         
-        elf64_sym_t* symbol = &symbols[sym_idx];
+        struct elf64_sym_t* symbol = &symbols[sym_idx];
         u64 symbol_value = symbol->st_value;
         
         // For relocatable files, symbol values are section-relative
         if (symbol->st_shndx != 0 && symbol->st_shndx < loaded->header->e_shnum) {
-            elf64_shdr_t* sym_section = &loaded->sections[symbol->st_shndx];
+            struct elf64_shdr_t* sym_section = &loaded->sections[symbol->st_shndx];
             symbol_value += (u64)loaded->exec_base + sym_section->sh_addr;
         }
         
@@ -142,13 +142,13 @@ static int elf_apply_relocations(loaded_elf_t* loaded, elf64_shdr_t* rela_sectio
     return 0;
 }
 
-int elf_load(const void* elf_data, u64 size, loaded_elf_t* loaded) {
-    if (!elf_data || !loaded || size < sizeof(elf64_ehdr_t)) {
+int elf_load(const void* elf_data, u64 size, struct loaded_elf* loaded) {
+    if (!elf_data || !loaded || size < sizeof(struct elf64_ehdr_t)) {
         vga_printf("[ELF] Invalid parameters\n");
         return -1;
     }
     
-    const elf64_ehdr_t* header = (const elf64_ehdr_t*)elf_data;
+    const struct elf64_ehdr_t* header = (const struct elf64_ehdr_t*)elf_data;
     
     // Validate ELF header
     if (elf_validate_header(header) != 0) {
@@ -160,7 +160,7 @@ int elf_load(const void* elf_data, u64 size, loaded_elf_t* loaded) {
 #endif
     
     // Calculate total size needed for all allocated sections
-    const elf64_shdr_t* sections = (const elf64_shdr_t*)((const u8*)elf_data + header->e_shoff);
+    const struct elf64_shdr_t* sections = (const struct elf64_shdr_t*)((const u8*)elf_data + header->e_shoff);
     u64 total_size = 0;
     u64 max_align = 1;
     
@@ -196,13 +196,13 @@ int elf_load(const void* elf_data, u64 size, loaded_elf_t* loaded) {
     // Initialize loaded structure
     loaded->base_addr = base;
     loaded->size = total_size;
-    loaded->header = (elf64_ehdr_t*)base;
-    loaded->sections = (elf64_shdr_t*)((u8*)base + header->e_shoff);
+    loaded->header = (struct elf64_ehdr_t*)base;
+    loaded->sections = (struct elf64_shdr_t*)((u8*)base + header->e_shoff);
     loaded->entry_point = 0;
     
     // Find string table
     if (header->e_shstrndx != 0 && header->e_shstrndx < header->e_shnum) {
-        elf64_shdr_t* strtab_hdr = &loaded->sections[header->e_shstrndx];
+        struct elf64_shdr_t* strtab_hdr = &loaded->sections[header->e_shstrndx];
         loaded->string_table = (char*)base + strtab_hdr->sh_offset;
     } else {
         loaded->string_table = NULL;
@@ -217,7 +217,7 @@ int elf_load(const void* elf_data, u64 size, loaded_elf_t* loaded) {
     
     u64 current_offset = 0;
     for (u16 i = 0; i < header->e_shnum; i++) {
-        elf64_shdr_t* section = &loaded->sections[i];
+        struct elf64_shdr_t* section = &loaded->sections[i];
         
         if (section->sh_flags & SHF_ALLOC) {
             // Align section
@@ -261,15 +261,15 @@ int elf_load(const void* elf_data, u64 size, loaded_elf_t* loaded) {
     // Find entry point (look for _start or main function)
     for (u16 i = 0; i < header->e_shnum; i++) {
         if (loaded->sections[i].sh_type == SHT_SYMTAB) {
-            elf64_sym_t* symbols = (elf64_sym_t*)((u8*)base + loaded->sections[i].sh_offset);
-            u32 num_symbols = loaded->sections[i].sh_size / sizeof(elf64_sym_t);
-            elf64_shdr_t* str_section = &loaded->sections[loaded->sections[i].sh_link];
+            struct elf64_sym_t* symbols = (struct elf64_sym_t*)((u8*)base + loaded->sections[i].sh_offset);
+            u32 num_symbols = loaded->sections[i].sh_size / sizeof(struct elf64_sym_t);
+            struct elf64_shdr_t* str_section = &loaded->sections[loaded->sections[i].sh_link];
             char* str_table = (char*)base + str_section->sh_offset;
             
             for (u32 j = 0; j < num_symbols; j++) {
                 const char* sym_name = str_table + symbols[j].st_name;
                 if (strcmp(sym_name, "_start") == 0 || strcmp(sym_name, "main") == 0) {
-                    elf64_shdr_t* sym_section = &loaded->sections[symbols[j].st_shndx];
+                    struct elf64_shdr_t* sym_section = &loaded->sections[symbols[j].st_shndx];
                     loaded->entry_point = sym_section->sh_addr + symbols[j].st_value;
                     vga_printf("[ELF] Found entry point: %s at offset 0x%llx\n", sym_name, loaded->entry_point);
                     break;
@@ -282,7 +282,7 @@ int elf_load(const void* elf_data, u64 size, loaded_elf_t* loaded) {
     return 0;
 }
 
-void elf_unload(loaded_elf_t* loaded) {
+void elf_unload(struct loaded_elf* loaded) {
     if (loaded && loaded->base_addr) {
         kfree_executable(loaded->base_addr);
         loaded->base_addr = NULL;
@@ -295,7 +295,7 @@ void elf_unload(loaded_elf_t* loaded) {
     }
 }
 
-int elf_execute(loaded_elf_t* loaded, const char* program_name) {
+int elf_execute(struct loaded_elf* loaded, const char* program_name) {
     if (!loaded || !loaded->base_addr) {
         vga_printf("[ELF] Invalid loaded ELF or no base address\n");
         return -1;

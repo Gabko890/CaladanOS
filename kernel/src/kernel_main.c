@@ -21,6 +21,7 @@
 #include <syscall_test.h>
 #include <elf_loader.h>
 #include <process.h>
+#include <vesa/vesa.h>
 
 // Shell integration globals
 static int shell_active = 0;
@@ -76,7 +77,7 @@ static int load_ramfs_from_modules(u32 mb2_info) {
     return -1;
 }
 
-static void dbg_reg_print(struct memory_info* minfo) {
+static void dbg_reg_print(struct memory_info_t* minfo) {
     vga_printf("=== Available Memory Regions ===\n");
     for (u8 i = 0; i < minfo->count; i++) {
         vga_printf("Region %d: 0x%llx - 0x%llx (%llu KB)\n",
@@ -102,22 +103,22 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
            __kernel_start_vma, __kernel_end_vma,
            __kernel_start_lma, __kernel_end_lma);
 
-    // vga_printf("bootloader magic: 0x%X\n", magic);
-
+    vga_printf("Parsing multiboot info...\n");
     multiboot2_parse(magic, mb2_info);
-    // multiboot2_print_basic_info(mb2_info);
-    // multiboot2_print_modules(mb2_info);
-
-
-
-    struct memory_info minfo = get_available_memory(mb2_info);
+    vga_printf("Multiboot parsing complete\n");
+    
+    vga_printf("Getting memory info...\n");
+    struct memory_info_t minfo = get_available_memory(mb2_info);
+    vga_printf("Memory info complete, found %d regions\n", minfo.count);
     
     // dbg_reg_print(&minfo);
     
     // Align kernel end up to next 4KB boundary and add 4KB gap for safety
+    vga_printf("Initializing memory mapper...\n");
     u64 kernel_end_aligned = ((u64)__kernel_end_vma + 0xFFFULL) & ~0xFFFULL;
     u64 page_table_virt = kernel_end_aligned + 0x1000ULL;  // Add 4KB gap
     u64 pml4_phys = mm_init(&minfo, page_table_virt);
+    vga_printf("Memory mapper initialized, PML4 at: 0x%llx\n", pml4_phys);
     
     if (0x00 == pml4_phys) {
         vga_printf("memory mapper initialization failed\n");
@@ -162,6 +163,26 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     // Initialize kmalloc heap now that virtual mapping is complete
     kmalloc_init(&minfo);
     vga_printf("Dynamic memory allocator initialized\n");
+    
+    // Try to initialize VESA framebuffer (from multiboot info)
+    vga_printf("Checking for framebuffer...\n");
+    if (vesa_init(mb2_info) == 0) {
+        vga_printf("VESA framebuffer found via multiboot\n");
+        struct vesa_info* info = vesa_get_info();
+        if (info && info->initialized && info->framebuffer_addr != 0) {
+            vga_printf("Resolution: %dx%d @ %d bpp, Address: 0x%llx\n", 
+                       info->framebuffer_width,
+                       info->framebuffer_height,
+                       info->framebuffer_bpp,
+                       info->framebuffer_addr);
+            
+            vga_printf("Filling screen with red...\n");
+            vesa_fill_screen(0xFF0000); // Pure red 
+            vga_printf("Screen filled successfully\n");
+        }
+    } else {
+        vga_printf("No multiboot framebuffer - using VGA text mode only\n");
+    }
         
     extern void irq1_handler(void);
 

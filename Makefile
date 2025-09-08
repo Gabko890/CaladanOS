@@ -229,9 +229,9 @@ build-docker:
 qemu:
 	@echo "$(COLOR_GREEN)Starting$(COLOR_RESET) QEMU..."
 ifeq ($(QEMU_ISA_DEBUGCON), true)
-	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console -no-reboot #-no-shutdown
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console -no-reboot -no-shutdown -vga std
 else
-	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -no-reboot -no-shutdown
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -no-reboot -no-shutdown -vga std
 endif
 
 clean:
