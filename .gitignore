@@ -1,0 +1,7 @@
+/.zig-cache/
+/zig-out/
+
+*.elf
+*.iso
+*.o
+*.efi
