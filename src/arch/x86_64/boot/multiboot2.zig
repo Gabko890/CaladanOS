@@ -18,6 +18,27 @@ pub const FramebufferInfo = struct {
     text_buffer: ?[*]volatile u16 = null,
 };
 
+pub const MemoryType = enum(u32) {
+    available = 1,
+    reserved = 2,
+    acpi_reclaimable = 3,
+    acpi_nvs = 4,
+    bad_memory = 5,
+    undefined,
+};
+
+pub const MemoryMapEntry = extern struct {
+    addr: u64,
+    len: u64,
+    type: u32,
+    reserved: u32,
+};
+
+pub const MemoryMap = struct {
+    entries: [*]const MemoryMapEntry,
+    count: usize,
+};
+
 const InfoHeader = extern struct {
     total_size: u32,
     reserved: u32,
@@ -37,6 +58,12 @@ const FramebufferTag = extern struct {
     framebuffer_bpp: u8,
     framebuffer_type: u8,
     reserved: u16,
+};
+
+const MemoryMapTag = extern struct {
+    header: TagHeader,
+    entry_size: u32,
+    entry_version: u32,
 };
 
 fn alignTo8(value: usize) usize {
@@ -79,4 +106,41 @@ pub fn locateFramebuffer(info_addr: usize) ?FramebufferInfo {
     }
 
     return null;
+}
+
+pub fn memoryMap(info_addr: usize) ?MemoryMap {
+    const header_ptr = @as(*const InfoHeader, @ptrFromInt(info_addr));
+    var cursor = info_addr + @sizeOf(InfoHeader);
+    const end = info_addr + header_ptr.total_size;
+
+    while (cursor < end) {
+        const tag = @as(*const TagHeader, @ptrFromInt(cursor));
+        if (tag.type == 0 or tag.size == 0) break;
+
+        if (tag.type == 6) {
+            const mmap_tag = @as(*const MemoryMapTag, @ptrCast(tag));
+            const entries_addr = @intFromPtr(mmap_tag) + @sizeOf(MemoryMapTag);
+            const entries_ptr = @as([*]const MemoryMapEntry, @ptrFromInt(entries_addr));
+            const entry_count = (mmap_tag.header.size - @sizeOf(MemoryMapTag)) / mmap_tag.entry_size;
+            return MemoryMap{
+                .entries = entries_ptr,
+                .count = entry_count,
+            };
+        }
+
+        cursor = alignTo8(cursor + tag.size);
+    }
+
+    return null;
+}
+
+pub fn memoryTypeName(value: u32) []const u8 {
+    return switch (value) {
+        @intFromEnum(MemoryType.available) => "usable",
+        @intFromEnum(MemoryType.reserved) => "reserved",
+        @intFromEnum(MemoryType.acpi_reclaimable) => "ACPI reclaim",
+        @intFromEnum(MemoryType.acpi_nvs) => "ACPI NVS",
+        @intFromEnum(MemoryType.bad_memory) => "bad memory",
+        else => "unknown",
+    };
 }

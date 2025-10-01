@@ -1,6 +1,7 @@
 const std = @import("std");
 const console = @import("console");
 const mb2 = @import("arch_boot");
+const cpu = @import("arch_cpu");
 
 const MAGIC = 0xE85250D6;
 const HEADER_LENGTH: u32 = 64;
@@ -87,6 +88,38 @@ fn kmain(magic: u32, info_addr: u32) callconv(.c) noreturn {
     console.setColor(fg | (bg << 4));
     console.clear();
     console.puts("Hello UEFI-ready Zig Kernel!\n");
+
+    var brand_buf: [64]u8 = undefined;
+    const brand = cpu.writeBrandString(&brand_buf);
+    console.printf("CPU: {s}\n", .{brand});
+    var vendor_buf: [16]u8 = undefined;
+    const vendor = cpu.writeVendorString(&vendor_buf);
+    console.printf("Vendor: {s}\n", .{vendor});
+    const logical = cpu.logicalProcessorCount();
+    console.printf("Logical processors: {d}\n", .{logical});
+
+    if (mb2.memoryMap(info_ptr)) |map| {
+        console.puts("Memory map (bootloader):\n");
+        var total_usable: u64 = 0;
+        var idx: usize = 0;
+        while (idx < map.count) : (idx += 1) {
+            const entry = map.entries[idx];
+            const type_str = mb2.memoryTypeName(entry.type);
+            console.printf(
+                "  region {d}: base=0x{X:0>16}, len=0x{X:0>16} ({s})\n",
+                .{ idx, entry.addr, entry.len, type_str },
+            );
+            if (entry.type == @intFromEnum(mb2.MemoryType.available)) {
+                total_usable += entry.len;
+            }
+        }
+        console.printf(
+            "Total usable memory: {d} MiB\n",
+            .{total_usable / (1024 * 1024)},
+        );
+    } else {
+        console.puts("No memory map provided by bootloader\n");
+    }
 
     halt();
 }

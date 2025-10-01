@@ -41,8 +41,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const cpuid_module = b.createModule(.{
+        .root_source_file = b.path("src/arch/x86_64/cpu/cpuid.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     root_module.addImport("console", console_module);
     root_module.addImport("arch_boot", multiboot_module);
+    root_module.addImport("arch_cpu", cpuid_module);
 
     const kernel = b.addExecutable(.{
         .name = "kernel.elf",
