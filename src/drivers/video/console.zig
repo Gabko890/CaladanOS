@@ -1,5 +1,13 @@
 const std = @import("std");
 const fmt = std.fmt;
+const build_options = @import("build_options");
+const serial = if (build_options.enable_serial)
+    @import("serial")
+else
+    struct {
+        pub inline fn writeByte(_: u8) void {}
+        pub inline fn write(_: []const u8) void {}
+    };
 
 pub const VGA_WIDTH = 80;
 pub const VGA_HEIGHT = 25;
@@ -246,6 +254,10 @@ pub fn putCharAt(c: u8, new_color: u8, x: usize, y: usize) void {
 }
 
 pub fn putChar(c: u8) void {
+    if (build_options.enable_serial) {
+        serial.writeByte(c);
+    }
+
     if (c == '\n') {
         column = 0;
         row = (row + 1) % height;
