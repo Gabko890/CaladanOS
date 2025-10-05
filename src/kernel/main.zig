@@ -83,11 +83,8 @@ fn kmain(magic: u32, info_addr: u32) callconv(.c) noreturn {
         console.initializeLegacy();
     }
 
-    const fg = @intFromEnum(console.ConsoleColors.White);
-    const bg = @intFromEnum(console.ConsoleColors.Black);
-    console.setColor(fg | (bg << 4));
     console.clear();
-    console.puts("Hello UEFI-ready Zig Kernel!\n");
+    console.puts("CaladanOS-zig kernel loaded!\n");
 
     var brand_buf: [64]u8 = undefined;
     const brand = cpu.writeBrandString(&brand_buf);
