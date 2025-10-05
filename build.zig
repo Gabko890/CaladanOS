@@ -10,13 +10,13 @@ const default_config = Config{ .architecture = "x86_64", .enable_serial = false 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const config = loadConfig(b);
-
     const target = b.resolveTargetQuery(targetFromArchitecture(config.architecture));
 
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "architecture", config.architecture);
     build_options.addOption(bool, "enable_serial", config.enable_serial);
 
+    // Kernel modules
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/kernel/main.zig"),
         .target = target,
@@ -66,87 +66,113 @@ pub fn build(b: *std.Build) void {
     root_module.addImport("console", console_module);
     root_module.addImport("arch_boot", multiboot_module);
     root_module.addImport("arch_cpu", cpuid_module);
-
-    if (serial_module) |module| {
-        root_module.addImport("serial", module);
-        console_module.addImport("serial", module);
+    if (serial_module) |m| {
+        root_module.addImport("serial", m);
+        console_module.addImport("serial", m);
     }
 
+    // Kernel build
     const kernel = b.addExecutable(.{
         .name = "kernel.elf",
         .root_module = root_module,
     });
-
     kernel.setLinkerScript(b.path("src/arch/x86_64/linker/kernel.ld"));
     const install_kernel = b.addInstallArtifact(kernel, .{});
 
+    // ------------------------------------------------------------------------
+    // Hybrid ISO step (pure Zig)
+    // ------------------------------------------------------------------------
+    const iso_step = b.step("iso", "Build hybrid BIOS+UEFI ISO");
+
+    const iso_dir = "zig-out/iso";
+    const kernel_path = b.getInstallPath(.bin, "kernel.elf");
     const iso_out = b.getInstallPath(.bin, "kernel.iso");
-    const kernel_out = b.getInstallPath(.bin, "kernel.elf");
     const grub_cfg = b.path("boot/grub/grub.cfg");
-    const grub_cfg_path = grub_cfg.getPath(b);
 
-    const iso_script = std.fmt.allocPrint(b.allocator,
-        \\set -e
-        \\ISO_DIR="zig-out/iso"
-        \\KERNEL="{s}"
-        \\ISO_OUT="{s}"
-        \\rm -rf "$ISO_DIR"
-        \\mkdir -p "$ISO_DIR/boot/grub"
-        \\cp "$KERNEL" "$ISO_DIR/boot/kernel.elf"
-        \\cp /usr/share/grub/unicode.pf2 "$ISO_DIR/boot/grub/unicode.pf2"
-        \\cp "{s}" "$ISO_DIR/boot/grub/grub.cfg"
-        \\grub-mkrescue -o "$ISO_OUT" "$ISO_DIR"
-    , .{ kernel_out, iso_out, grub_cfg_path }) catch @panic("OOM");
-
-    const iso_cmd = b.addSystemCommand(&[_][]const u8{
-        "bash",
-        "-lc",
-        iso_script,
+    const make_dirs = b.addSystemCommand(&[_][]const u8{
+        "mkdir",                 "-p",
+        iso_dir ++ "/boot/grub", iso_dir ++ "/EFI/BOOT",
     });
+    make_dirs.step.dependOn(&install_kernel.step);
 
-    const kernel_step = b.step("kernel", "Build the kernel");
-    kernel_step.dependOn(&kernel.step);
+    const copy_kernel = b.addSystemCommand(&[_][]const u8{
+        "cp", kernel_path, iso_dir ++ "/boot/kernel.elf",
+    });
+    copy_kernel.step.dependOn(&make_dirs.step);
+
+    const copy_font = b.addSystemCommand(&[_][]const u8{
+        "bash",                                                                                 "-c",
+        "cp /usr/share/grub/unicode.pf2 zig-out/iso/boot/grub/unicode.pf2 2>/dev/null || true",
+    });
+    copy_font.step.dependOn(&copy_kernel.step);
+
+    const copy_cfg = b.addSystemCommand(&[_][]const u8{
+        "cp", grub_cfg.getPath(b), iso_dir ++ "/boot/grub/grub.cfg",
+    });
+    copy_cfg.step.dependOn(&copy_font.step);
+
+    const mkimage = b.addSystemCommand(&[_][]const u8{
+        "grub-mkimage",
+        "-O",
+        "x86_64-efi",
+        "-o",
+        iso_dir ++ "/EFI/BOOT/BOOTX64.EFI",
+        "-p",
+        "/boot/grub",
+        "iso9660",
+        "part_gpt",
+        "part_msdos",
+        "efi_gop",
+        "efi_uga",
+        "multiboot2",
+        "normal",
+    });
+    mkimage.step.dependOn(&copy_cfg.step);
+
+    const mkrescue = b.addSystemCommand(&[_][]const u8{
+        "grub-mkrescue",
+        "-o",
+        iso_out,
+        iso_dir,
+    });
+    mkrescue.step.dependOn(&mkimage.step);
+
+    iso_step.dependOn(&mkrescue.step);
+
+    const kernel_step = b.step("kernel", "Build kernel ELF");
     kernel_step.dependOn(&install_kernel.step);
 
-    const iso_step = b.step("iso", "Build a UEFI bootable ISO containing the kernel");
     iso_step.dependOn(kernel_step);
-    iso_step.dependOn(&iso_cmd.step);
-    iso_cmd.step.dependOn(&install_kernel.step);
 
-    const config_step = b.step("config", "Configure build options interactively");
+    // ------------------------------------------------------------------------
+    // Config
+    // ------------------------------------------------------------------------
+    const config_step = b.step("config", "Configure build options");
     const config_cmd = b.addSystemCommand(&[_][]const u8{
-        "bash",
-        "-lc",
-        "tools/configure.sh",
+        "bash", "-lc", "tools/configure.sh",
     });
     config_step.dependOn(&config_cmd.step);
 }
 
+// ------------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------------
 fn targetFromArchitecture(arch: []const u8) std.Target.Query {
     const x86_query = x86TargetQuery();
-
-    if (std.mem.eql(u8, arch, "x86") or std.mem.eql(u8, arch, "x86_64")) {
-        return x86_query;
-    }
-
-    std.debug.print(
-        "Unknown architecture '{s}', falling back to 32-bit x86 target.\n",
-        .{arch},
-    );
+    if (std.mem.eql(u8, arch, "x86") or std.mem.eql(u8, arch, "x86_64")) return x86_query;
+    std.debug.print("Unknown architecture '{s}', using 32-bit x86.\n", .{arch});
     return x86_query;
 }
 
 fn x86TargetQuery() std.Target.Query {
     var disabled = std.Target.Cpu.Feature.Set.empty;
     var enabled = std.Target.Cpu.Feature.Set.empty;
-
     disabled.addFeature(@intFromEnum(std.Target.x86.Feature.mmx));
     disabled.addFeature(@intFromEnum(std.Target.x86.Feature.sse));
     disabled.addFeature(@intFromEnum(std.Target.x86.Feature.sse2));
     disabled.addFeature(@intFromEnum(std.Target.x86.Feature.avx));
     disabled.addFeature(@intFromEnum(std.Target.x86.Feature.avx2));
     enabled.addFeature(@intFromEnum(std.Target.x86.Feature.soft_float));
-
     return .{
         .cpu_arch = .x86,
         .os_tag = .freestanding,
@@ -157,10 +183,8 @@ fn x86TargetQuery() std.Target.Query {
 }
 
 fn loadConfig(b: *std.Build) Config {
-    const config_path = b.path("build/config.json");
-    const absolute_path = config_path.getPath(b);
-
-    var file = std.fs.cwd().openFile(absolute_path, .{}) catch return default_config;
+    const path = b.path("build/config.json");
+    var file = std.fs.cwd().openFile(path.getPath(b), .{}) catch return default_config;
     defer file.close();
 
     const contents = file.readToEndAlloc(b.allocator, 4096) catch return default_config;
@@ -168,9 +192,7 @@ fn loadConfig(b: *std.Build) Config {
 
     const JsonConfig = struct {
         architecture: []const u8 = default_config.architecture,
-        debug: struct {
-            serial: bool = default_config.enable_serial,
-        } = .{},
+        debug: struct { serial: bool = default_config.enable_serial } = .{},
     };
 
     var arena = std.heap.ArenaAllocator.init(b.allocator);
@@ -181,9 +203,5 @@ fn loadConfig(b: *std.Build) Config {
     }) catch return default_config;
 
     const arch_dup = b.allocator.dupe(u8, parsed.architecture) catch return default_config;
-
-    return .{
-        .architecture = arch_dup,
-        .enable_serial = parsed.debug.serial,
-    };
+    return .{ .architecture = arch_dup, .enable_serial = parsed.debug.serial };
 }
