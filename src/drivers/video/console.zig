@@ -1,5 +1,5 @@
 const std = @import("std");
-const fmt = std.fmt;
+// Avoid std.fmt in freestanding printf to reduce dependencies
 const build_options = @import("build_options");
 
 const serial = if (build_options.enable_serial)
@@ -317,11 +317,40 @@ pub fn puts(data: []const u8) void {
         putChar(c);
 }
 
-pub fn printf(comptime format: []const u8, args: anytype) void {
-    var scratch: [256]u8 = undefined;
-    const message = fmt.bufPrint(&scratch, format, args) catch {
-        puts("[printf overflow]\n");
+fn printUnsignedAny(v: anytype, base: u8, uppercase: bool) void {
+    var value: u64 = @as(u64, @intCast(v));
+    var buf: [32]u8 = undefined;
+    var i: usize = 0;
+    if (value == 0) {
+        putChar('0');
         return;
-    };
-    puts(message);
+    }
+    while (value != 0 and i < buf.len) : (i += 1) {
+        const digit_u64: u64 = value % @as(u64, base);
+        const digit: u8 = @as(u8, @intCast(digit_u64));
+        value /= base;
+        if (digit < 10) {
+            buf[i] = @as(u8, '0') + digit;
+        } else {
+            const base_alpha: u8 = if (uppercase) @as(u8, 'A') else @as(u8, 'a');
+            buf[i] = base_alpha + (digit - 10);
+        }
+    }
+    var j: isize = @as(isize, @intCast(i)) - 1;
+    while (j >= 0) : (j -= 1) putChar(buf[@as(usize, @intCast(j))]);
 }
+
+fn printSignedAny(v: anytype) void {
+    var value: i64 = @as(i64, @intCast(v));
+    if (value < 0) {
+        putChar('-');
+        value = -value;
+    }
+    printUnsignedAny(@as(u64, @intCast(value)), 10, false);
+}
+
+// Simple helpers used by early boot code
+pub fn printU(value: u64) void { printUnsignedAny(value, 10, false); }
+pub fn printI(value: i64) void { printSignedAny(value); }
+pub fn printHexU32(value: u32) void { printUnsignedAny(@as(u64, value), 16, true); }
+pub fn printHexU64(value: u64) void { printUnsignedAny(value, 16, true); }

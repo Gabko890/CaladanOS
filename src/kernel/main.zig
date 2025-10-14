@@ -2,6 +2,9 @@ const std = @import("std");
 const console = @import("console");
 const mb2 = @import("arch_boot");
 const cpu = @import("arch_cpu");
+comptime {
+    _ = @import("rt");
+}
 
 const MAGIC = 0xE85250D6;
 const HEADER_LENGTH: u32 = 64;
@@ -31,24 +34,7 @@ fn makeHeader() [HEADER_LENGTH]u8 {
 
 export const multiboot align(8) linksection(".multiboot") = makeHeader();
 
-var stack_bytes: [16 * 1024]u8 align(16) linksection(".bss") = undefined;
-
-export fn _start() callconv(.naked) noreturn {
-    asm volatile (
-        \\ movl %[stack_top], %%esp
-        \\ movl %%esp, %%ebp
-        \\ pushl %%ebx
-        \\ pushl %%eax
-        \\ call %[kmain:P]
-        \\ cli
-        \\ hlt
-        :
-        : [stack_top] "i" (@as([*]align(16) u8, @ptrCast(&stack_bytes)) + @sizeOf(@TypeOf(stack_bytes))),
-          [kmain] "X" (&kmain),
-        : .{ .memory = true });
-}
-
-fn kmain(magic: u32, info_addr: u32) callconv(.c) noreturn {
+fn kernelMain(magic: u32, info_addr: u32) callconv(.c) noreturn {
     if (magic != mb2.bootloader_magic) {
         console.initializeLegacy();
         console.puts("Invalid boot magic\n");
@@ -85,15 +71,21 @@ fn kmain(magic: u32, info_addr: u32) callconv(.c) noreturn {
 
     console.clear();
     console.puts("CaladanOS-zig kernel loaded!\n");
-
-    var brand_buf: [64]u8 = undefined;
-    const brand = cpu.writeBrandString(&brand_buf);
-    console.printf("CPU: {s}\n", .{brand});
+    
     var vendor_buf: [16]u8 = undefined;
     const vendor = cpu.writeVendorString(&vendor_buf);
-    console.printf("Vendor: {s}\n", .{vendor});
+    console.puts("Vendor: ");
+    console.puts(vendor);
+    console.puts("\n");
+    var brand_buf: [64]u8 = undefined;
+    const brand = cpu.writeBrandString(&brand_buf);
+    console.puts("CPU: ");
+    console.puts(brand);
+    console.puts("\n");
     const logical = cpu.logicalProcessorCount();
-    console.printf("Logical processors: {d}\n", .{logical});
+    console.puts("Logical processors: ");
+    console.printU(logical);
+    console.puts("\n");
 
     if (mb2.memoryMap(info_ptr)) |map| {
         console.puts("Memory map (bootloader):\n");
@@ -102,23 +94,35 @@ fn kmain(magic: u32, info_addr: u32) callconv(.c) noreturn {
         while (idx < map.count) : (idx += 1) {
             const entry = map.entries[idx];
             const type_str = mb2.memoryTypeName(entry.type);
-            console.printf(
-                "  region {d}: base=0x{X:0>16}, len=0x{X:0>16} ({s})\n",
-                .{ idx, entry.addr, entry.len, type_str },
-            );
+            console.puts("  region ");
+            console.printU(idx);
+            console.puts(": base=0x");
+            console.printHexU64(entry.addr);
+            console.puts(", len=0x");
+            console.printHexU64(entry.len);
+            console.puts(" (");
+            console.puts(type_str);
+            console.puts(")\n");
+
             if (entry.type == @intFromEnum(mb2.MemoryType.available)) {
                 total_usable += entry.len;
             }
         }
-        console.printf(
-            "Total usable memory: {d} MiB\n",
-            .{total_usable / (1024 * 1024)},
-        );
+        console.puts("Total usable memory: ");
+        console.printU(total_usable / (1024 * 1024));
+        console.puts(" MiB\n");
     } else {
         console.puts("No memory map provided by bootloader\n");
     }
 
+    console.puts("end");
+
     halt();
+}
+
+// Fastcall entry: params in ECX, EDX (set by start.asm from EAX, EBX)
+export fn kmain_regs(magic: u32, info_addr: u32) callconv(.c) noreturn {
+    kernelMain(magic, info_addr);
 }
 
 fn halt() noreturn {

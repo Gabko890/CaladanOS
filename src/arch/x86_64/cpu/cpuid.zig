@@ -1,5 +1,6 @@
 const std = @import("std");
 const ascii = std.ascii;
+const console = @import("console");
 
 pub const CpuidResult = struct {
     eax: u32,
@@ -14,21 +15,30 @@ fn cpuid_raw(leaf: u32, subleaf: u32) CpuidResult {
     var ecx: u32 = undefined;
     var edx: u32 = undefined;
 
-    asm volatile ("cpuid"
-        : [a] "={eax}" (eax),
-          [b] "={ebx}" (ebx),
-          [c] "={ecx}" (ecx),
-          [d] "={edx}" (edx),
-        : [leaf] "{eax}" (leaf),
-          [subleaf] "{ecx}" (subleaf),
-        : .{ .memory = true });
+    const builtin = @import("builtin");
+    if (builtin.cpu.arch == .x86_64) {
+        asm volatile (
+            "cpuid"
+            : [a] "={rax}" (eax),
+              [b] "={rbx}" (ebx),
+              [c] "={rcx}" (ecx),
+              [d] "={rdx}" (edx)
+            : [leaf] "{rax}" (leaf),
+              [subleaf] "{rcx}" (subleaf)
+            : .{ .memory = true });
+    } else {
+        asm volatile (
+            "cpuid"
+            : [a] "={eax}" (eax),
+              [b] "={ebx}" (ebx),
+              [c] "={ecx}" (ecx),
+              [d] "={edx}" (edx)
+            : [leaf] "{eax}" (leaf),
+              [subleaf] "{ecx}" (subleaf)
+            : .{ .memory = true });
+    }
 
-    return CpuidResult{
-        .eax = eax,
-        .ebx = ebx,
-        .ecx = ecx,
-        .edx = edx,
-    };
+    return CpuidResult{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
 fn maxBasicLeaf() u32 {
@@ -91,11 +101,11 @@ fn topologyLogicalCount(leaf: u32) ?u32 {
         const res = cpuid_raw(leaf, level);
         const level_type: u32 = (res.ecx >> 8) & 0xFF;
         const logical_at_level: u32 = res.ebx & 0xFFFF;
-
         if (level_type == 0 or logical_at_level == 0) break;
 
         if (level_type == 2) core_level = logical_at_level;
         if (logical_at_level > best_overall) best_overall = logical_at_level;
+        if (level > 32) break;
     }
 
     if (core_level) |v| return v;
