@@ -1,3 +1,4 @@
+**Archived in favor of:** [Gabko890/CaladanOS-zig](https://github.com/Gabko890/CaladanOS-zig)
 # CaladanOS
 
 ## Description
