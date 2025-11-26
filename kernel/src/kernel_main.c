@@ -21,6 +21,7 @@
 #include <syscall_test.h>
 #include <elf_loader.h>
 #include <process.h>
+#include <fb/fb_console.h>
 
 // Shell integration globals
 static int shell_active = 0;
@@ -89,6 +90,8 @@ static void dbg_reg_print(struct memory_info* minfo) {
 }
 
 void kernel_main(volatile u32 magic, u32 mb2_info) {
+    // Initialize framebuffer console as early as possible; disables VGA writes if present
+    fb_console_init_from_mb2(mb2_info);
     vga_attr(0x0B);
     vga_printf("CaladanOS");
     vga_attr(0x07);
@@ -162,6 +165,9 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     // Initialize kmalloc heap now that virtual mapping is complete
     kmalloc_init(&minfo);
     vga_printf("Dynamic memory allocator initialized\n");
+
+    // Initialize framebuffer console if available (PSF font loaded later from ramfs)
+    fb_console_init_from_mb2(mb2_info);
         
     extern void irq1_handler(void);
 
@@ -250,6 +256,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     // Try to load ramfs from multiboot modules
     if (load_ramfs_from_modules(mb2_info) == 0) {
+        // Load PSF font for framebuffer console (if framebuffer present)
+        (void)fb_console_load_psf_from_ramfs("/fonts/Lat15-Terminus16.psf");
         // ELF loader testing disabled during boot - use shell instead
         vga_printf("ELF loader ready - test with 'exec' command in shell\n");
         

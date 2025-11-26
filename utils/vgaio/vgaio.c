@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <portio.h>
+#include <fb/fb_console.h>
 
 
 static volatile char* vga_addr = (volatile char*) 0xb8000;
@@ -23,8 +24,8 @@ static int ansi_buffer_pos = 0;
 
 
 void vga_update_cursor(int x, int y) {
+    if (fb_console_present()) return; // no hardware cursor in FB mode
 	u16 pos = y * VGA_WIDTH + x;
-
 	outb(0x3D4, 0x0F);
 	outb(0x3D5, (u8) (pos & 0xFF));
 	outb(0x3D4, 0x0E);
@@ -33,7 +34,14 @@ void vga_update_cursor(int x, int y) {
 
 //  ===================== output =========================
 //
+static inline int text_width(void)  { if (fb_console_is_active()) { int w,h; fb_console_get_size(&w,&h); return w; } return VGA_WIDTH; }
+static inline int text_height(void) { if (fb_console_is_active()) { int w,h; fb_console_get_size(&w,&h); return h; } return VGA_HEIGHT; }
+
 static void vga_scroll_up(void) {
+    if (fb_console_present()) {
+        fb_console_scroll_up(arrt);
+        return;
+    }
     for (int row = 0; row < VGA_HEIGHT - 1; row++) {
         for (int col = 0; col < VGA_WIDTH; col++) {
             int current_pos = (row * VGA_WIDTH + col) * 2;
@@ -42,7 +50,6 @@ static void vga_scroll_up(void) {
             vga_addr[current_pos + 1] = vga_addr[next_pos + 1];
         }
     }
-    
     // Clear the last line
     int last_row_start = (VGA_HEIGHT - 1) * VGA_WIDTH * 2;
     for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
@@ -75,14 +82,7 @@ static void vga_handle_ansi_sequence(void) {
                 vga_update_cursor(cursor.x, cursor.y);
                 break;
             case 'K': // Clear to end of line
-                {
-                    int pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
-                    int line_end = (cursor.y * VGA_WIDTH + VGA_WIDTH) * 2;
-                    for (int i = pos; i < line_end; i += 2) {
-                        vga_addr[i] = ' ';
-                        vga_addr[i + 1] = arrt;
-                    }
-                }
+                vga_clear_to_eol();
                 break;
             case 'G': // Move cursor to beginning of line
                 cursor.x = 0;
@@ -93,22 +93,13 @@ static void vga_handle_ansi_sequence(void) {
         if (ansi_buffer[0] == '2') {
             switch (ansi_buffer[1]) {
                 case 'J': // Clear entire screen
-                    for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH * 2; i += 2) {
-                        vga_addr[i] = ' ';
-                        vga_addr[i + 1] = arrt;
-                    }
+                    vga_clear_screen();
                     cursor.x = 0;
                     cursor.y = 0;
                     vga_update_cursor(cursor.x, cursor.y);
                     break;
                 case 'K': // Clear entire line
-                    {
-                        int line_start = cursor.y * VGA_WIDTH * 2;
-                        for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
-                            vga_addr[line_start + i] = ' ';
-                            vga_addr[line_start + i + 1] = arrt;
-                        }
-                    }
+                    vga_clear_line();
                     break;
             }
         }
@@ -170,33 +161,40 @@ void vga_putchar(char c) {
         cursor.y++;
     } else {
         // Bounds check before calculating position
-        if (cursor.y >= VGA_HEIGHT) {
-            cursor.y = VGA_HEIGHT - 1;
+        int w = text_width();
+        int h = text_height();
+        if (cursor.y >= h) {
+            cursor.y = h - 1;
             vga_scroll_up();
         }
-        if (cursor.x >= VGA_WIDTH) {
+        if (cursor.x >= w) {
             cursor.x = 0;
             cursor.y++;
-            if (cursor.y >= VGA_HEIGHT) {
-                cursor.y = VGA_HEIGHT - 1;
+            if (cursor.y >= h) {
+                cursor.y = h - 1;
                 vga_scroll_up();
             }
         }
 
-        int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
-        vga_addr[relative_pos] = c;
-        vga_addr[relative_pos + 1] = arrt;
+        if (fb_console_present()) {
+            fb_console_putc_at(c, arrt, cursor.x, cursor.y);
+        } else {
+            int relative_pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
+            vga_addr[relative_pos] = c;
+            vga_addr[relative_pos + 1] = arrt;
+        }
         cursor.x++;
 
-        if (cursor.x >= VGA_WIDTH) {
+        if (cursor.x >= w) {
             cursor.x = 0;
             cursor.y++;
         }
     }
 
     // Handle cursor.y overflow after any operation
-    if (cursor.y >= VGA_HEIGHT) {
-        cursor.y = VGA_HEIGHT - 1;
+    int h2 = text_height();
+    if (cursor.y >= h2) {
+        cursor.y = h2 - 1;
         vga_scroll_up();
     }
 
@@ -212,9 +210,14 @@ void vga_attr(u8 _arrt) {
 }
 
 void vga_clear_screen(void) {
-    for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH * 2; i += 2) {
-        vga_addr[i] = ' ';
-        vga_addr[i + 1] = arrt;
+    if (fb_console_present()) {
+        fb_console_set_color(arrt);
+        fb_console_clear();
+    } else {
+        for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH * 2; i += 2) {
+            vga_addr[i] = ' ';
+            vga_addr[i + 1] = arrt;
+        }
     }
     cursor.x = 0;
     cursor.y = 0;
@@ -222,19 +225,27 @@ void vga_clear_screen(void) {
 }
 
 void vga_clear_line(void) {
-    int line_start = cursor.y * VGA_WIDTH * 2;
-    for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
-        vga_addr[line_start + i] = ' ';
-        vga_addr[line_start + i + 1] = arrt;
+    if (fb_console_present()) {
+        fb_console_clear_line(cursor.y, arrt);
+    } else {
+        int line_start = cursor.y * VGA_WIDTH * 2;
+        for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
+            vga_addr[line_start + i] = ' ';
+            vga_addr[line_start + i + 1] = arrt;
+        }
     }
 }
 
 void vga_clear_to_eol(void) {
-    int pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
-    int line_end = (cursor.y * VGA_WIDTH + VGA_WIDTH) * 2;
-    for (int i = pos; i < line_end; i += 2) {
-        vga_addr[i] = ' ';
-        vga_addr[i + 1] = arrt;
+    if (fb_console_present()) {
+        fb_console_clear_to_eol(cursor.x, cursor.y, arrt);
+    } else {
+        int pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
+        int line_end = (cursor.y * VGA_WIDTH + VGA_WIDTH) * 2;
+        for (int i = pos; i < line_end; i += 2) {
+            vga_addr[i] = ' ';
+            vga_addr[i + 1] = arrt;
+        }
     }
 }
 
@@ -246,7 +257,8 @@ void vga_move_cursor_left(void) {
 }
 
 void vga_move_cursor_right(void) {
-    if (cursor.x < VGA_WIDTH - 1) {
+    int w = text_width();
+    if (cursor.x < w - 1) {
         cursor.x++;
         vga_update_cursor(cursor.x, cursor.y);
     }

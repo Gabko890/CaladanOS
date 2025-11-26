@@ -202,6 +202,11 @@ build-x86_64-internal: $(OBJECTS)
 		fi; \
 	done
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ramfs archive from: $(RAMFS_DIR)"
+	@# Ensure optional fonts and assets exist in ramfs
+	@mkdir -p $(RAMFS_DIR)/fonts
+	@if [ -f Example/src/drivers/video/Lat15-Terminus16.psf ]; then \
+		cp Example/src/drivers/video/Lat15-Terminus16.psf $(RAMFS_DIR)/fonts/Lat15-Terminus16.psf; \
+	fi
 	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$(ISO_DIR)/boot/ramfs.cpio)
 	@cpio -itv < $(ISO_DIR)/boot/ramfs.cpio
 	@cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
