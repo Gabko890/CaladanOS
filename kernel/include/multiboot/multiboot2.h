@@ -106,4 +106,17 @@ void multiboot2_get_modules(u32 mb2_info, struct mb2_modules_list* result);
 void multiboot2_get_memory_regions(u32 mb2_info, struct mb2_memory_map* out_map);
 
 #endif // MULTIBOOT2_H
+// Framebuffer tag (Multiboot2 spec)
+struct multiboot_tag_framebuffer {
+    u32 type;
+    u32 size;
+    u64 framebuffer_addr;
+    u32 framebuffer_pitch;
+    u32 framebuffer_width;
+    u32 framebuffer_height;
+    u8  framebuffer_bpp;
+    u8  framebuffer_type;
+    u16 reserved;
+    // Followed by optional palette or RGB bitfields depending on type.
+} __attribute__((packed));
 

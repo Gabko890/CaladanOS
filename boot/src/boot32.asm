@@ -60,16 +60,12 @@ _start:
     call    check_cpuid
     call    check_long_mode
 
-    ; Quick visible marker BEFORE building paging: identity access to VGA
-    mov     byte [0x000B8000], 'A'
-    mov     byte [0x000B8000 + 1], 0x07
+    ; (no VGA writes — we rely on framebuffer later)
 
     ; build page tables (in memory at TABLES_PMA)
     call    build_paging
 
-    ; Visible marker AFTER tables are built, BEFORE enabling PAE/CR3
-    mov     byte [0x000B8000], 'B'
-    mov     byte [0x000B8000 + 1], 0x0E
+    ;
 
     ; enable PAE before loading CR3
     mov     eax, cr4
@@ -86,22 +82,14 @@ _start:
     or      eax, EFER_LME
     wrmsr
 
-    ; final visible marker BEFORE enabling paging
-    mov     byte [0x000B8000], 'C'
-    mov     byte [0x000B8000 + 1], 0x1F
+    ;
 
     ; enable paging (CR0.PG)
     mov     eax, cr0
     or      eax, CR0_PG
     mov     cr0, eax
 
-    ; Now paging is active. Try writing to identity VGA and higher-half VGA (32-bit truncated)
-    mov     byte [0x000B8000], 'D'
-    mov     byte [0x000B8000 + 1], 0x2F
-
-    ; Try write to higher-half virtual address (low 32-bit truncated)
-    mov     eax, 0x800B8000
-    mov     dword [eax], 0x07204444
+    ; (no VGA writes in paging phase)
 
     ; Emit final debug to ports so remote debugbox can see it
     mov     al, 'X'
@@ -168,14 +156,7 @@ check_long_mode:
 ; ERROR HANDLER
 ; ------------------------------------------------------------------------
 error:
-    ; print "ERR: X" where X is the error code (M/C/L)
-    ; keep VGA override comments: if VGA mapping not present this may fault,
-    ; but we try identity VGA first (before paging), so this should be safe.
-    mov dword [0xb8000], 0x4f524f45 ; "ERRO"
-    mov dword [0xb8004], 0x4f3a4f52 ; "R: O"
-    mov dword [0xb8008], 0x4f204f20 ; " O "
-    mov byte  [0xb800a], al         ; error code
-    ; also emit to debug ports for remote visibility
+    ; emit error code to debug ports for visibility (no VGA writes)
     out 0xE9, al
     out 0x80, al
     hlt
@@ -320,13 +301,7 @@ build_paging:
     dec     ecx
     jnz     .fill_pt_loop
 
-    ; Override PT entry for VGA: index = 0xB8 (184)
-    mov     eax, 0x000B8000
-    or      eax, 0x003
-    mov     dword [PT_HI_BASE + 184*8 + 0], eax
-    mov     dword [PT_HI_BASE + 184*8 + 4], 0
-
-    ; Debug: PT_HI filled and VGA override set
+    ; PT_HI filled
     mov     al, '7'
     out     0xE9, al
     out     0x80, al
@@ -395,4 +370,3 @@ SECTION .boot.data
 align 8
 mb_magic:  dd 0
 mb_info:   dd 0
-
