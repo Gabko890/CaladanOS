@@ -27,4 +27,9 @@ void fb_console_get_size(int* out_cols, int* out_rows);
 // Requires cldramfs to be initialized and data loaded. Returns 1 on success.
 int fb_console_load_psf_from_ramfs(const char* path);
 
+// Minimal RGB drawing helpers for simple GUI usage
+void fb_get_resolution(u32* out_w, u32* out_h);
+void fb_draw_pixel(u32 x, u32 y, u8 r, u8 g, u8 b);
+void fb_fill_rect_rgb(u32 x, u32 y, u32 w, u32 h, u8 r, u8 g, u8 b);
+
 #endif // FB_CONSOLE_H

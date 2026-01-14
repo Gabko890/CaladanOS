@@ -3,6 +3,32 @@
 #include <cldtypes.h>
 #include <vgaio.h>
 
+// ====== Low-level controller helpers ======
+static void ps2_wait_input_clear(void) {
+    // Wait until input buffer is clear (bit 1 == 0)
+    while (inb(0x64) & 0x02) { }
+}
+
+static void ps2_wait_output_full(void) {
+    // Wait until output buffer is full (bit 0 == 1)
+    while (!(inb(0x64) & 0x01)) { }
+}
+
+static void ps2_write(u8 data) {
+    ps2_wait_input_clear();
+    outb(0x60, data);
+}
+
+static void ps2_write_cmd(u8 cmd) {
+    ps2_wait_input_clear();
+    outb(0x64, cmd);
+}
+
+static u8 ps2_read_data(void) {
+    ps2_wait_output_full();
+    return inb(0x60);
+}
+
 void ps2_init(void) {
     // Clear any pending keyboard data
     while (inb(0x64) & 0x01) {
@@ -65,4 +91,64 @@ void ps2_handler(void) {
 
 u128 ps2_keyarr() {
     return keyarr;
+}
+
+// ===== PS/2 mouse (aux) =====
+static ps2_mouse_callback_t mouse_callback = 0;
+static u8 mouse_packet[3];
+static int mouse_packet_index = 0;
+
+static void mouse_write(u8 data) {
+    // Send a byte to the mouse via 0xD4 prefix
+    ps2_write_cmd(0xD4);
+    ps2_write(data);
+    // Read ACK (0xFA)
+    (void)ps2_read_data();
+}
+
+void ps2_mouse_set_callback(ps2_mouse_callback_t callback) {
+    mouse_callback = callback;
+}
+
+void ps2_mouse_init(void) {
+    // Enable auxiliary device (mouse)
+    ps2_write_cmd(0xA8);
+
+    // Enable IRQ12 in controller command byte
+    ps2_write_cmd(0x20); // Read command byte
+    u8 status = ps2_read_data();
+    status |= 0x02;      // Enable IRQ12 (bit 1)
+    ps2_write_cmd(0x60); // Write command byte
+    ps2_write(status);
+
+    // Reset defaults and enable data reporting
+    mouse_write(0xF6);   // Set defaults
+    mouse_write(0xF4);   // Enable data reporting
+
+    mouse_packet_index = 0;
+}
+
+void ps2_mouse_handler(void) {
+    // Read one byte; since this runs on IRQ12, data belongs to mouse
+    u8 data = inb(0x60);
+
+    // Synchronize on first byte with bit 3 set
+    if (mouse_packet_index == 0 && !(data & 0x08)) {
+        return; // discard until in sync
+    }
+
+    mouse_packet[mouse_packet_index++] = data;
+    if (mouse_packet_index < 3) return;
+
+    mouse_packet_index = 0;
+
+    u8 b = mouse_packet[0];
+    int dx = (int)((i8)mouse_packet[1]);
+    int dy = (int)((i8)mouse_packet[2]);
+    // In PS/2, positive dy = up (or down?) — invert to screen coords (y increases downward)
+    dy = -dy;
+
+    if (mouse_callback) {
+        mouse_callback(dx, dy, (u8)(b & 0x07));
+    }
 }

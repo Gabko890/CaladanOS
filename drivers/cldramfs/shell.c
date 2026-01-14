@@ -3,6 +3,9 @@
 #include "cldramfs.h"
 #include <vgaio.h>
 #include <string.h>
+#include <gui/gui.h>
+#include <fb/fb_console.h>
+#include <shell_control.h>
 
 // External TTY functions
 extern void tty_global_init(void);
@@ -167,6 +170,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  echo [text]         - Print text to stdout\n");
         vga_printf("  echo [text] > file  - Write text to file\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
+        vga_printf("  startgui            - Start GUI (mouse; Esc to exit)\n");
         vga_printf("  echo [text] >> file - Append text to file\n");
         vga_printf("  clear               - Clear screen\n");
         vga_printf("  exit                - Exit shell\n");
@@ -174,6 +178,15 @@ int cldramfs_shell_process_command(const char *command_line) {
     else if (strcmp(cmd, "clear") == 0) {
         // Clear screen using ANSI escape sequences
         vga_printf("\x1b[2J\x1b[H");
+    }
+    else if (strcmp(cmd, "startgui") == 0) {
+        if (!fb_console_present()) {
+            vga_printf("GUI requires framebuffer mode.\n");
+        } else {
+            // Pause shell input and start GUI
+            shell_pause();
+            gui_start();
+        }
     }
     else if (strcmp(cmd, "exit") == 0) {
         shell_running = 0;
@@ -198,7 +211,7 @@ void cldramfs_shell_handle_input(void) {
     }
     
     tty_global_reset_line();
-    if (shell_running) {
+    if (shell_running && shell_is_active()) {
         tty_print_prompt();
     }
 }
