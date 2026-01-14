@@ -3,6 +3,8 @@
 #include <ps2.h>
 #include <vgaio.h>
 #include <shell_control.h>
+#include <kmalloc.h>
+#include "term.h"
 
 // Simple GUI state
 static int gui_active = 0;
@@ -10,6 +12,9 @@ static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
 static u32 cursor_x = 0, cursor_y = 0;
 static const u32 CURSOR_SZ = 8;
+static int dragging = 0;
+static u32 drag_off_x = 0, drag_off_y = 0;
+static u8 last_buttons = 0;
 
 // Colors
 static const u8 COL_BG[3]     = { 0x20, 0x20, 0x20 };
@@ -34,10 +39,11 @@ static void draw_border(u32 x, u32 y, u32 w, u32 h, u32 t, const u8 rgb[3]) {
     if (w > t && h > 2 * t) draw_rect_rgb(x + w - t, y + t, t, h - 2 * t, rgb);
 }
 
-static void gui_draw_window(void) {
-    // Background
+static void gui_clear_all(void) {
     draw_rect_rgb(0, 0, scr_w, scr_h, COL_BG);
+}
 
+static void gui_draw_window(void) {
     // Window body
     draw_rect_rgb(win_x, win_y, win_w, win_h, COL_WIN);
     draw_border(win_x, win_y, win_w, win_h, 2, COL_BORDER);
@@ -47,51 +53,31 @@ static void gui_draw_window(void) {
     draw_rect_rgb(win_x + 2, win_y + 2, win_w - 4, title_h, COL_TITLE);
 }
 
-static void gui_draw_cursor(u32 x, u32 y) {
-    // Draw simple filled square cursor
-    draw_rect_rgb(x, y, CURSOR_SZ, CURSOR_SZ, COL_CURSOR);
+// Cursor background save/restore to reduce flicker
+static u8* cursor_save = 0;
+static u32 cursor_save_x = 0, cursor_save_y = 0;
+static int cursor_saved = 0;
+static u8 fb_bpp = 0;
+
+static void gui_cursor_undraw(void) {
+    if (cursor_saved && cursor_save) {
+        fb_blit(cursor_save_x, cursor_save_y, CURSOR_SZ, CURSOR_SZ, cursor_save);
+        cursor_saved = 0;
+    }
 }
 
-static void gui_erase_cursor(u32 x, u32 y) {
-    // Erase by redrawing the area underneath (window or background)
-    u32 ex = x, ey = y, ew = CURSOR_SZ, eh = CURSOR_SZ;
-
-    // Compute intersection with window
-    u32 wx1 = win_x, wy1 = win_y, wx2 = win_x + win_w, wy2 = win_y + win_h;
-    u32 cx1 = ex, cy1 = ey, cx2 = ex + ew, cy2 = ey + eh;
-
-    // Part overlapping the window
-    u32 ox1 = (cx1 > wx1) ? cx1 : wx1;
-    u32 oy1 = (cy1 > wy1) ? cy1 : wy1;
-    u32 ox2 = (cx2 < wx2) ? cx2 : wx2;
-    u32 oy2 = (cy2 < wy2) ? cy2 : wy2;
-
-    // First, redraw background everywhere
-    draw_rect_rgb(ex, ey, ew, eh, COL_BG);
-
-    // Then, if overlapping window, redraw that portion on top
-    if (ox2 > ox1 && oy2 > oy1) {
-        draw_rect_rgb(ox1, oy1, ox2 - ox1, oy2 - oy1, COL_WIN);
-        // Title bar overlap
-        u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
-        u32 tb_y1 = win_y + 2;
-        u32 tb_y2 = tb_y1 + title_h;
-        u32 tx1 = (ox1 > (win_x + 2)) ? ox1 : (win_x + 2);
-        u32 ty1 = (oy1 > tb_y1) ? oy1 : tb_y1;
-        u32 tx2 = (ox2 < (win_x + win_w - 2)) ? ox2 : (win_x + win_w - 2);
-        u32 ty2 = (oy2 < tb_y2) ? oy2 : tb_y2;
-        if (tx2 > tx1 && ty2 > ty1) {
-            draw_rect_rgb(tx1, ty1, tx2 - tx1, ty2 - ty1, COL_TITLE);
-        }
-        // Redraw border if needed (approximate; keep it simple)
-        draw_border(win_x, win_y, win_w, win_h, 2, COL_BORDER);
-    }
+static void gui_cursor_draw(u32 x, u32 y) {
+    if (!cursor_save) return;
+    fb_copy_out(x, y, CURSOR_SZ, CURSOR_SZ, cursor_save);
+    cursor_save_x = x; cursor_save_y = y;
+    cursor_saved = 1;
+    draw_rect_rgb(x, y, CURSOR_SZ, CURSOR_SZ, COL_CURSOR);
 }
 
 static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (!gui_active) return;
-    (void)buttons;
-    u32 old_x = cursor_x, old_y = cursor_y;
+    u32 old_cx = cursor_x, old_cy = cursor_y;
+    u32 old_wx = win_x, old_wy = win_y;
 
     // Update cursor position with clamping
     int nx = (int)cursor_x + dx;
@@ -103,9 +89,82 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     cursor_x = (u32)nx;
     cursor_y = (u32)ny;
 
-    // Erase old cursor and draw new one
-    gui_erase_cursor(old_x, old_y);
-    gui_draw_cursor(cursor_x, cursor_y);
+    int left_pressed = (buttons & 0x01) != 0;
+    int left_was_pressed = (last_buttons & 0x01) != 0;
+
+    // Start drag if left just pressed inside title bar
+    if (!dragging && left_pressed && !left_was_pressed) {
+        u32 tb_h = (win_h > 24) ? 24 : (win_h / 8);
+        u32 tx1 = win_x + 2;
+        u32 ty1 = win_y + 2;
+        u32 tx2 = win_x + win_w - 2;
+        u32 ty2 = ty1 + tb_h;
+        if (cursor_x >= tx1 && cursor_x < tx2 && cursor_y >= ty1 && cursor_y < ty2) {
+            dragging = 1;
+            drag_off_x = cursor_x - win_x;
+            drag_off_y = cursor_y - win_y;
+        }
+    }
+
+    // Stop drag on release
+    if (dragging && !left_pressed && left_was_pressed) {
+        dragging = 0;
+    }
+
+    // If dragging, move window and redraw
+    int window_moved = 0;
+    if (dragging) {
+        int new_wx = (int)cursor_x - (int)drag_off_x;
+        int new_wy = (int)cursor_y - (int)drag_off_y;
+        if (new_wx < 0) new_wx = 0;
+        if (new_wy < 0) new_wy = 0;
+        if (new_wx > (int)(scr_w - win_w)) new_wx = (int)(scr_w - win_w);
+        if (new_wy > (int)(scr_h - win_h)) new_wy = (int)(scr_h - win_h);
+        if (win_x != (u32)new_wx || win_y != (u32)new_wy) {
+            win_x = (u32)new_wx;
+            win_y = (u32)new_wy;
+            window_moved = 1;
+        }
+    }
+
+    if (window_moved) {
+        // Old and new terminal content rects
+        u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+        u32 oc_title_h = title_h; // same since height unchanged
+        u32 ocx = old_wx + 6;
+        u32 ocy = old_wy + 2 + oc_title_h + 4;
+        u32 ow = (win_w > 12) ? (win_w - 12) : 0;
+        u32 oh = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
+        u32 ncx = win_x + 6;
+        u32 ncy = win_y + 2 + title_h + 4;
+
+        // Remove old cursor drawing
+        gui_cursor_undraw();
+        // Redraw only union of old/new window as background first
+        u32 ux1 = (old_wx < win_x) ? old_wx : win_x;
+        u32 uy1 = (old_wy < win_y) ? old_wy : win_y;
+        u32 ux2_old = old_wx + win_w;
+        u32 uy2_old = old_wy + win_h;
+        u32 ux2_new = win_x + win_w;
+        u32 uy2_new = win_y + win_h;
+        u32 ux2 = (ux2_old > ux2_new) ? ux2_old : ux2_new;
+        u32 uy2 = (uy2_old > uy2_new) ? uy2_old : uy2_new;
+        draw_rect_rgb(ux1, uy1, ux2 - ux1, uy2 - uy1, COL_BG);
+        // Draw new window frame (so content copy appears on top)
+        gui_draw_window();
+        // Move terminal content by copying region
+        fb_copy_region(ocx, ocy, ow, oh, ncx, ncy);
+        gui_term_move(ncx, ncy);
+        // Old region is already covered by union background fill
+        // Draw cursor at new position
+        gui_cursor_draw(cursor_x, cursor_y);
+    } else {
+        // Just move the cursor with save/restore
+        gui_cursor_undraw();
+        gui_cursor_draw(cursor_x, cursor_y);
+    }
+
+    last_buttons = buttons;
 }
 
 static void gui_stop(void);
@@ -115,6 +174,14 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
     if (!gui_active) return;
     if (is_pressed && scancode == US_ESC) {
         gui_stop();
+    }
+    // Forward all keys to TTY/shell for processing
+    if (is_pressed) {
+        extern int tty_global_handle_key(u8 scancode, int is_extended);
+        extern void cldramfs_shell_handle_input(void);
+        if (tty_global_handle_key(scancode, is_extended)) {
+            cldramfs_shell_handle_input();
+        }
     }
 }
 
@@ -140,9 +207,24 @@ void gui_start(void) {
     if (cursor_x > scr_w - CURSOR_SZ) cursor_x = scr_w - CURSOR_SZ;
     if (cursor_y > scr_h - CURSOR_SZ) cursor_y = scr_h - CURSOR_SZ;
 
+    // Prepare cursor save buffer
+    fb_bpp = fb_get_bytespp();
+    if (fb_bpp == 0) return;
+    cursor_save = (u8*)kmalloc(CURSOR_SZ * CURSOR_SZ * fb_bpp);
+    if (!cursor_save) return;
+
     // Draw initial GUI
+    gui_clear_all();
     gui_draw_window();
-    gui_draw_cursor(cursor_x, cursor_y);
+    // Terminal area: inside window, below title bar with margins
+    u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+    u32 content_x = win_x + 6;
+    u32 content_y = win_y + 2 + title_h + 4;
+    u32 content_w = (win_w > 12) ? (win_w - 12) : 0;
+    u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
+    gui_term_init(content_x, content_y, content_w, content_h);
+    gui_term_attach();
+    gui_cursor_draw(cursor_x, cursor_y);
 
     // Hook input callbacks and mark active
     ps2_mouse_set_callback(gui_mouse_cb);
@@ -155,10 +237,18 @@ static void gui_stop(void) {
     gui_active = 0;
     // Unhook mouse callback
     ps2_mouse_set_callback(0);
+    // Detach terminal sink
+    gui_term_detach();
 
     // Clear screen back to text console background
     vga_clear_screen();
 
     // Restore shell input and prompt
     shell_resume();
+
+    if (cursor_save) {
+        kfree(cursor_save);
+        cursor_save = 0;
+        cursor_saved = 0;
+    }
 }

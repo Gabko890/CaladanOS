@@ -240,3 +240,131 @@ void fb_fill_rect_rgb(u32 x, u32 y, u32 w, u32 h, u8 r, u8 g, u8 b) {
     u8 rgb[3] = { r, g, b };
     fill_rect(x, y, w, h, rgb);
 }
+
+u8 fb_get_bytespp(void) {
+    return g_has_fb ? g_fb.bytes_pp : 0;
+}
+
+void fb_copy_out(u32 x, u32 y, u32 w, u32 h, u8* dst) {
+    if (!g_has_fb || !dst) return;
+    if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;
+    u32 x2 = x + w; if (x2 > g_fb.fb_width) x2 = g_fb.fb_width;
+    u32 y2 = y + h; if (y2 > g_fb.fb_height) y2 = g_fb.fb_height;
+    u32 out_w = x2 - x;
+    u32 out_h = y2 - y;
+    u32 bpp = g_fb.bytes_pp;
+    for (u32 yy = 0; yy < out_h; yy++) {
+        volatile u8* src = g_fb.fb + (y + yy) * g_fb.pitch + x * bpp;
+        u8* d = dst + yy * (out_w * bpp);
+        for (u32 i = 0; i < out_w * bpp; i++) d[i] = src[i];
+    }
+}
+
+void fb_blit(u32 x, u32 y, u32 w, u32 h, const u8* src) {
+    if (!g_has_fb || !src) return;
+    if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;
+    u32 x2 = x + w; if (x2 > g_fb.fb_width) x2 = g_fb.fb_width;
+    u32 y2 = y + h; if (y2 > g_fb.fb_height) y2 = g_fb.fb_height;
+    u32 in_w = x2 - x;
+    u32 in_h = y2 - y;
+    u32 bpp = g_fb.bytes_pp;
+    for (u32 yy = 0; yy < in_h; yy++) {
+        volatile u8* dst = g_fb.fb + (y + yy) * g_fb.pitch + x * bpp;
+        const u8* s = src + yy * (in_w * bpp);
+        for (u32 i = 0; i < in_w * bpp; i++) dst[i] = s[i];
+    }
+}
+
+int fb_font_get_cell_size(int* out_w, int* out_h) {
+    if (!g_has_font) return 0;
+    if (out_w) *out_w = g_font.cell_w;
+    if (out_h) *out_h = g_font.cell_h;
+    return 1;
+}
+
+void fb_fill_rect_attr(u32 x, u32 y, u32 w, u32 h, u8 vga_attr) {
+    const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
+    fill_rect(x, y, w, h, bg);
+}
+
+void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr) {
+    if (!g_has_font || !g_has_fb) return;
+    const u8* fg = PALETTE[fg_idx(vga_attr) & 0x0F];
+    const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
+    // px,py are pixel coords; convert to cell coords for draw_glyph helper
+    u32 cell_x = px / (u32)g_font.cell_w;
+    u32 cell_y = py / (u32)g_font.cell_h;
+    // draw_glyph expects cell grid aligned; draw directly using per-pixel to match px,py alignment
+    // Implement local variant that draws starting at px,py in pixels
+    u32 idx = (u32)(u8)c;
+    if (idx >= (u32)g_font.glyph_count) idx = (u32)'?';
+    const u8* glyph = g_font.glyphs + idx * (u32)g_font.glyph_size;
+    for (int y2 = 0; y2 < g_font.cell_h; y2++) {
+        if (py + (u32)y2 >= g_fb.fb_height) break;
+        u8 bits = glyph[y2];
+        for (int x2 = 0; x2 < g_font.cell_w; x2++) {
+            if (px + (u32)x2 >= g_fb.fb_width) break;
+            u8 mask = (u8)(0x80 >> (x2 & 7));
+            const u8* rgb = (bits & mask) ? fg : bg;
+            set_pixel(px + (u32)x2, py + (u32)y2, rgb);
+        }
+    }
+}
+
+void fb_scroll_region_up(u32 x, u32 y, u32 w, u32 h, u32 row_px, u8 vga_attr) {
+    if (!g_has_fb) return;
+    if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;
+    if (w == 0 || h == 0) return;
+    if (row_px >= h) {
+        fb_fill_rect_attr(x, y, w, h, vga_attr);
+        return;
+    }
+    u32 bpp = g_fb.bytes_pp;
+    u32 copy_h = h - row_px;
+    for (u32 yy = 0; yy < copy_h; yy++) {
+        volatile u8* dst = g_fb.fb + (y + yy) * g_fb.pitch + x * bpp;
+        volatile u8* src = g_fb.fb + (y + yy + row_px) * g_fb.pitch + x * bpp;
+        for (u32 i = 0; i < w * bpp; i++) dst[i] = src[i];
+    }
+    fb_fill_rect_attr(x, y + copy_h, w, row_px, vga_attr);
+}
+
+void fb_copy_region(u32 src_x, u32 src_y, u32 w, u32 h, u32 dst_x, u32 dst_y) {
+    if (!g_has_fb) return;
+    if (w == 0 || h == 0) return;
+    if (src_x >= g_fb.fb_width || src_y >= g_fb.fb_height) return;
+    if (dst_x >= g_fb.fb_width || dst_y >= g_fb.fb_height) return;
+    u32 bpp = g_fb.bytes_pp;
+    u32 max_w = g_fb.fb_width - ((src_x > dst_x) ? src_x : dst_x);
+    u32 max_h = g_fb.fb_height - ((src_y > dst_y) ? src_y : dst_y);
+    if (w > max_w) w = max_w;
+    if (h > max_h) h = max_h;
+
+    int forward = 1;
+    if (dst_y > src_y) forward = 0; // copy bottom-up when moving downward to avoid overwrite
+
+    if (forward) {
+        for (u32 yy = 0; yy < h; yy++) {
+            volatile u8* s = g_fb.fb + (src_y + yy) * g_fb.pitch + src_x * bpp;
+            volatile u8* d = g_fb.fb + (dst_y + yy) * g_fb.pitch + dst_x * bpp;
+            if (d == s) continue;
+            if (d < s) {
+                for (u32 i = 0; i < w * bpp; i++) d[i] = s[i];
+            } else {
+                for (u32 i = w * bpp; i > 0; i--) d[i-1] = s[i-1];
+            }
+        }
+    } else {
+        for (u32 yyo = 0; yyo < h; yyo++) {
+            u32 yy = h - 1 - yyo;
+            volatile u8* s = g_fb.fb + (src_y + yy) * g_fb.pitch + src_x * bpp;
+            volatile u8* d = g_fb.fb + (dst_y + yy) * g_fb.pitch + dst_x * bpp;
+            if (d == s) continue;
+            if (d < s) {
+                for (u32 i = 0; i < w * bpp; i++) d[i] = s[i];
+            } else {
+                for (u32 i = w * bpp; i > 0; i--) d[i-1] = s[i-1];
+            }
+        }
+    }
+}
