@@ -311,6 +311,25 @@ void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr) {
     }
 }
 
+void fb_draw_char_px_nobg(u32 px, u32 py, char c, u8 fg_index) {
+    if (!g_has_font || !g_has_fb) return;
+    const u8* fg = PALETTE[fg_index & 0x0F];
+    u32 idx = (u32)(u8)c;
+    if (idx >= (u32)g_font.glyph_count) idx = (u32)'?';
+    const u8* glyph = g_font.glyphs + idx * (u32)g_font.glyph_size;
+    for (int y2 = 0; y2 < g_font.cell_h; y2++) {
+        if (py + (u32)y2 >= g_fb.fb_height) break;
+        u8 bits = glyph[y2];
+        for (int x2 = 0; x2 < g_font.cell_w; x2++) {
+            if (px + (u32)x2 >= g_fb.fb_width) break;
+            u8 mask = (u8)(0x80 >> (x2 & 7));
+            if (bits & mask) {
+                set_pixel(px + (u32)x2, py + (u32)y2, fg);
+            }
+        }
+    }
+}
+
 void fb_scroll_region_up(u32 x, u32 y, u32 w, u32 h, u32 row_px, u8 vga_attr) {
     if (!g_has_fb) return;
     if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;

@@ -5,9 +5,12 @@
 #include <shell_control.h>
 #include <kmalloc.h>
 #include "term.h"
+#include "bar.h"
 
 // Simple GUI state
 static int gui_active = 0;
+static int terminal_win_id = -1;
+static int window_open = 0;
 static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
 static u32 cursor_x = 0, cursor_y = 0;
@@ -51,6 +54,13 @@ static void gui_draw_window(void) {
     // Title bar
     u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
     draw_rect_rgb(win_x + 2, win_y + 2, win_w - 4, title_h, COL_TITLE);
+    // Close button (red square) in title bar right
+    const u8 RED[3] = { 0xCC, 0x33, 0x33 };
+    u32 cb = (title_h > 14) ? 12 : (title_h - 4);
+    if (cb > 6) {
+        u32 cx = win_x + win_w - cb - 6;
+        draw_rect_rgb(cx, win_y + 4, cb, cb, RED);
+    }
 }
 
 // Cursor background save/restore to reduce flicker
@@ -89,23 +99,96 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     cursor_x = (u32)nx;
     cursor_y = (u32)ny;
 
+    // Hover handling for bar menu: closes when cursor leaves menu/dropdown
+    if (gui_bar_on_move(cursor_x, cursor_y)) {
+        // Re-render area where dropdown was to restore background/underlying window
+        u32 rx, ry, rw, rh;
+        if (gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh)) {
+            if (window_open) {
+                gui_draw_window();
+                gui_term_render_all();
+            } else {
+                draw_rect_rgb(rx, ry, rw, rh, COL_BG);
+            }
+            gui_cursor_draw(cursor_x, cursor_y);
+        }
+    }
+
     int left_pressed = (buttons & 0x01) != 0;
     int left_was_pressed = (last_buttons & 0x01) != 0;
     int just_released = 0;
 
-    // Start drag if left just pressed inside title bar
-    if (!dragging && left_pressed && !left_was_pressed) {
+    // Handle bar clicks (menu/dropdown)
+    if (left_pressed && !left_was_pressed) {
+        int clicked_window_id = -1;
+        int action = gui_bar_on_click(cursor_x, cursor_y, &clicked_window_id);
+        // If a dropdown was closed by click, repaint its area
+        u32 rx, ry, rw, rh;
+        if (gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh)) {
+            if (window_open) { gui_draw_window(); gui_term_render_all(); }
+            else { draw_rect_rgb(rx, ry, rw, rh, COL_BG); }
+            gui_cursor_draw(cursor_x, cursor_y);
+        }
+        if (action == 1) {
+            // Open new terminal (single window supported): create if none, otherwise focus
+            if (!window_open) {
+                // Default window size and position (below bar)
+                win_w = scr_w / 2; win_h = scr_h / 2;
+                if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
+                if (win_h < 80)  win_h = (scr_h > 100) ? 100 : scr_h - 20;
+                win_x = (scr_w - win_w) / 2; win_y = GUI_BAR_HEIGHT + 10;
+                // Draw frame and register window
+                gui_draw_window();
+                terminal_win_id = gui_bar_register_window("Terminal");
+                gui_bar_set_active_window(terminal_win_id);
+                gui_bar_render();
+                // Init terminal content area
+                u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+                u32 content_x = win_x + 6;
+                u32 content_y = win_y + 2 + title_h + 4;
+                u32 content_w = (win_w > 12) ? (win_w - 12) : 0;
+                u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
+                gui_term_init(content_x, content_y, content_w, content_h);
+                gui_term_attach();
+                gui_term_render_all();
+                window_open = 1;
+            } else {
+                gui_bar_set_active_window(terminal_win_id);
+                gui_bar_render();
+            }
+        } else if (action == 2 && clicked_window_id > 0) {
+            // Focus a window tab: set active highlight. No Z-order change for now.
+            if (clicked_window_id == terminal_win_id) {
+                gui_bar_set_active_window(terminal_win_id);
+                gui_bar_render();
+            }
+        }
+    }
+
+    // Start drag if left just pressed inside title bar (only when a window is open)
+    if (window_open && !dragging && left_pressed && !left_was_pressed) {
         u32 tb_h = (win_h > 24) ? 24 : (win_h / 8);
         u32 tx1 = win_x + 2;
         u32 ty1 = win_y + 2;
         u32 tx2 = win_x + win_w - 2;
         u32 ty2 = ty1 + tb_h;
-        if (cursor_x >= tx1 && cursor_x < tx2 && cursor_y >= ty1 && cursor_y < ty2) {
+        // Close button hit (red square on right)
+        u32 cb = (tb_h > 14) ? 12 : (tb_h - 4);
+        u32 cx1 = win_x + win_w - 6 - cb, cy1 = win_y + 4, cx2 = cx1 + cb, cy2 = cy1 + cb;
+        if (cursor_x >= cx1 && cursor_x < cx2 && cursor_y >= cy1 && cursor_y < cy2) {
+            // Close current window: detach terminal, free buffer, clear area, unregister from bar
+            gui_cursor_undraw();
+            gui_term_detach(); gui_term_free();
+            if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+            draw_rect_rgb(win_x, win_y, win_w, win_h, COL_BG);
+            gui_bar_render();
+            window_open = 0; dragging = 0; just_released = 1;
+        } else if (cursor_x >= tx1 && cursor_x < tx2 && cursor_y >= ty1 && cursor_y < ty2) {
             dragging = 1;
-            drag_off_x = cursor_x - win_x;
-            drag_off_y = cursor_y - win_y;
+            drag_off_x = cursor_x - win_x; drag_off_y = cursor_y - win_y;
         }
     }
+
 
     // Stop drag on release
     if (dragging && !left_pressed && left_was_pressed) {
@@ -119,24 +202,21 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (dragging) {
         int new_wx = (int)cursor_x - (int)drag_off_x;
         int new_wy = (int)cursor_y - (int)drag_off_y;
-        if (new_wx < 0) new_wx = 0;
-        if (new_wy < 0) new_wy = 0;
+        // Dragging terminal
+        if (new_wx < 0) new_wx = 0; if (new_wy < 0) new_wy = 0;
         if (new_wx > (int)(scr_w - win_w)) new_wx = (int)(scr_w - win_w);
         if (new_wy > (int)(scr_h - win_h)) new_wy = (int)(scr_h - win_h);
-        if (win_x != (u32)new_wx || win_y != (u32)new_wy) {
-            win_x = (u32)new_wx;
-            win_y = (u32)new_wy;
-            window_moved = 1;
-        }
+        if (win_x != (u32)new_wx || win_y != (u32)new_wy) { win_x = (u32)new_wx; win_y = (u32)new_wy; window_moved = 1; }
     }
 
-    if (window_moved) {
+    if (window_open && window_moved) {
         // Remove old cursor drawing so it doesn't interfere
         gui_cursor_undraw();
         // Clear old window area fully (fast fill)
         draw_rect_rgb(old_wx, old_wy, win_w, win_h, COL_BG);
         // Draw new window frame
         gui_draw_window();
+        gui_bar_render();
         // Update terminal anchor to new position
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
         u32 ncx = win_x + 6;
@@ -155,9 +235,11 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     }
 
     // If drag just ended but there was no delta in this packet, ensure full terminal redraw now
-    if (just_released && !window_moved) {
+    if (window_open && just_released && !window_moved) {
         gui_term_render_all();
     }
+    // no other window redraw required
+    // no secondary window
 
     last_buttons = buttons;
 }
@@ -170,8 +252,8 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
     if (is_pressed && scancode == US_ESC) {
         gui_stop();
     }
-    // Forward all keys to TTY/shell for processing
-    if (is_pressed) {
+    // Forward keys to shell only when a terminal window is open
+    if (window_open && is_pressed) {
         extern int tty_global_handle_key(u8 scancode, int is_extended);
         extern void cldramfs_shell_handle_input(void);
         if (tty_global_handle_key(scancode, is_extended)) {
@@ -211,6 +293,9 @@ void gui_start(void) {
     // Draw initial GUI
     gui_clear_all();
     gui_draw_window();
+    // Initialize and draw top bar
+    gui_bar_init();
+    gui_bar_render();
     // Terminal area: inside window, below title bar with margins
     u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
     u32 content_x = win_x + 6;
@@ -219,12 +304,17 @@ void gui_start(void) {
     u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
     gui_term_init(content_x, content_y, content_w, content_h);
     gui_term_attach();
+    // Register window with bar and set active
+    terminal_win_id = gui_bar_register_window("Terminal");
+    gui_bar_set_active_window(terminal_win_id);
+    gui_bar_render();
     gui_cursor_draw(cursor_x, cursor_y);
 
     // Hook input callbacks and mark active
     ps2_mouse_set_callback(gui_mouse_cb);
     ps2_set_key_callback(gui_key_handler);
     gui_active = 1;
+    window_open = 1;
 }
 
 static void gui_stop(void) {
@@ -249,4 +339,10 @@ static void gui_stop(void) {
 
     // Free terminal backing store
     gui_term_free();
+
+    // Unregister window from bar
+    if (terminal_win_id > 0) {
+        gui_bar_unregister_window(terminal_win_id);
+        terminal_win_id = -1;
+    }
 }
