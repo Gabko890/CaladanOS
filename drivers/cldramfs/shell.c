@@ -183,8 +183,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         if (!fb_console_present()) {
             vga_printf("GUI requires framebuffer mode.\n");
         } else {
-            // Pause shell input and start GUI
-            shell_pause();
+            // Start GUI terminal (shell remains active; output redirected)
             gui_start();
         }
     }

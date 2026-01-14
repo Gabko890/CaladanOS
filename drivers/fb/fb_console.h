@@ -32,4 +32,17 @@ void fb_get_resolution(u32* out_w, u32* out_h);
 void fb_draw_pixel(u32 x, u32 y, u8 r, u8 g, u8 b);
 void fb_fill_rect_rgb(u32 x, u32 y, u32 w, u32 h, u8 r, u8 g, u8 b);
 
+// Raw framebuffer helpers (tightly packed rows in buffers)
+u8  fb_get_bytespp(void);
+void fb_copy_out(u32 x, u32 y, u32 w, u32 h, u8* dst);
+void fb_blit(u32 x, u32 y, u32 w, u32 h, const u8* src);
+
+// Text/glyph helpers for windowed terminals
+int  fb_font_get_cell_size(int* out_w, int* out_h);
+void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr);
+void fb_fill_rect_attr(u32 x, u32 y, u32 w, u32 h, u8 vga_attr);
+void fb_scroll_region_up(u32 x, u32 y, u32 w, u32 h, u32 row_px, u8 vga_attr);
+// Copy rectangle within framebuffer (safe for overlap). Uses a small line buffer.
+void fb_copy_region(u32 src_x, u32 src_y, u32 w, u32 h, u32 dst_x, u32 dst_y);
+
 #endif // FB_CONSOLE_H

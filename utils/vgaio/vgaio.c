@@ -11,6 +11,12 @@ static volatile char* vga_addr = (volatile char*) 0xb8000;
 static Cursor cursor = {0, 0};
 static u8 arrt = 0x07;
 
+// Optional sinks for GUI terminal redirection
+static vga_putchar_sink_t g_putchar_sink = NULL;
+static int g_putchar_sink_suppress = 0;
+static vga_attr_sink_t g_attr_sink = NULL;
+static int g_attr_sink_suppress = 0;
+
 // ANSI escape sequence parsing state
 typedef enum {
     ANSI_STATE_NORMAL,
@@ -111,6 +117,10 @@ static void vga_handle_ansi_sequence(void) {
 }
 
 void vga_putchar(char c) {
+    if (g_putchar_sink) {
+        g_putchar_sink(c);
+        if (g_putchar_sink_suppress) return;
+    }
     // Handle ANSI escape sequences
     switch (ansi_state) {
         case ANSI_STATE_NORMAL:
@@ -206,6 +216,10 @@ void vga_putchar(char c) {
 }
 
 void vga_attr(u8 _arrt) {
+    if (g_attr_sink) {
+        g_attr_sink(_arrt);
+        if (g_attr_sink_suppress) return;
+    }
     arrt = _arrt;
 }
 
@@ -462,6 +476,29 @@ int vga_printf(const char *fmt, ...) {
 
     va_end(args);
     return count;
+}
+
+void vga_set_putchar_sink(vga_putchar_sink_t fn, int suppress_default) {
+    g_putchar_sink = fn;
+    g_putchar_sink_suppress = suppress_default ? 1 : 0;
+    // Reset local ANSI state to avoid partial sequences if sink consumes all
+    ansi_state = ANSI_STATE_NORMAL;
+    ansi_buffer_pos = 0;
+}
+
+void vga_clear_putchar_sink(void) {
+    g_putchar_sink = NULL;
+    g_putchar_sink_suppress = 0;
+}
+
+void vga_set_attr_sink(vga_attr_sink_t fn, int suppress_default) {
+    g_attr_sink = fn;
+    g_attr_sink_suppress = suppress_default ? 1 : 0;
+}
+
+void vga_clear_attr_sink(void) {
+    g_attr_sink = NULL;
+    g_attr_sink_suppress = 0;
 }
 
 // ====================== input =======================
