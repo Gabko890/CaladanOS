@@ -15,5 +15,9 @@ void gui_term_set_attr(u8 attr);
 void gui_term_putchar(char c);
 // Move terminal viewport to new pixel position (keeps content)
 void gui_term_move(u32 px, u32 py);
+// Redraw full terminal content from backing store
+void gui_term_render_all(void);
+// Free terminal backing store
+void gui_term_free(void);
 
 #endif // GUI_TERM_H

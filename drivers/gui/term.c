@@ -1,6 +1,7 @@
 #include "term.h"
 #include <fb/fb_console.h>
 #include <vgaio.h>
+#include <kmalloc.h>
 
 // Terminal state
 static u32 t_x = 0, t_y = 0, t_w = 0, t_h = 0; // pixel rect
@@ -8,6 +9,9 @@ static int cell_w = 8, cell_h = 16;
 static int cols = 0, rows = 0;
 static int cur_x = 0, cur_y = 0;
 static u8 cur_attr = 0x07; // white on black by default
+
+typedef struct { char ch; u8 attr; } TermCell;
+static TermCell* cells = 0; // rows*cols
 
 // Minimal ANSI parser (mirrors vgaio subset)
 typedef enum {
@@ -19,17 +23,41 @@ static t_ansi_state_t t_state = T_ANSI_NORMAL;
 static char t_buf[16];
 static int t_buf_pos = 0;
 
+static void term_render_all(void) {
+    if (!cells) return;
+    // Draw background implicitly via glyph bg for each cell
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            TermCell c = cells[y * cols + x];
+            u32 px = t_x + (u32)x * (u32)cell_w;
+            u32 py = t_y + (u32)y * (u32)cell_h;
+            fb_draw_char_px(px, py, c.ch, c.attr);
+        }
+    }
+}
+
 static void term_clear_all(void) {
+    // Reset backing store to spaces
+    if (cells) {
+        for (int i = 0; i < rows * cols; i++) { cells[i].ch = ' '; cells[i].attr = cur_attr; }
+    }
     fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
     cur_x = 0; cur_y = 0;
 }
 
 static void term_clear_line_full(void) {
+    // Clear backing store row
+    if (cells) {
+        for (int x = 0; x < cols; x++) { cells[cur_y * cols + x].ch = ' '; cells[cur_y * cols + x].attr = cur_attr; }
+    }
     u32 py = t_y + (u32)cur_y * (u32)cell_h;
     fb_fill_rect_attr(t_x, py, t_w, (u32)cell_h, cur_attr);
 }
 
 static void term_clear_to_eol(void) {
+    if (cells) {
+        for (int x = cur_x; x < cols; x++) { cells[cur_y * cols + x].ch = ' '; cells[cur_y * cols + x].attr = cur_attr; }
+    }
     u32 px = t_x + (u32)cur_x * (u32)cell_w;
     u32 pw = t_w - (u32)cur_x * (u32)cell_w;
     u32 py = t_y + (u32)cur_y * (u32)cell_h;
@@ -37,7 +65,17 @@ static void term_clear_to_eol(void) {
 }
 
 static void term_scroll_up(void) {
-    fb_scroll_region_up(t_x, t_y, t_w, t_h, (u32)cell_h, cur_attr);
+    if (!cells) return;
+    // Move rows up in backing store
+    for (int y = 0; y < rows - 1; y++) {
+        for (int x = 0; x < cols; x++) {
+            cells[y * cols + x] = cells[(y + 1) * cols + x];
+        }
+    }
+    // Clear last row
+    for (int x = 0; x < cols; x++) { cells[(rows - 1) * cols + x].ch = ' '; cells[(rows - 1) * cols + x].attr = cur_attr; }
+    // Redraw all (simple and robust)
+    term_render_all();
 }
 
 static void term_putc(char c) {
@@ -46,6 +84,11 @@ static void term_putc(char c) {
     } else {
         if (cur_y >= rows) { cur_y = rows - 1; term_scroll_up(); }
         if (cur_x >= cols) { cur_x = 0; cur_y++; if (cur_y >= rows) { cur_y = rows - 1; term_scroll_up(); } }
+        // Write to backing store and draw cell
+        if (cells) {
+            cells[cur_y * cols + cur_x].ch = c;
+            cells[cur_y * cols + cur_x].attr = cur_attr;
+        }
         u32 px = t_x + (u32)cur_x * (u32)cell_w;
         u32 py = t_y + (u32)cur_y * (u32)cell_h;
         fb_draw_char_px(px, py, c, cur_attr);
@@ -99,7 +142,13 @@ void gui_term_init(u32 px, u32 py, u32 pw, u32 ph) {
     if (cols <= 0) cols = 1;
     if (rows <= 0) rows = 1;
     cur_x = 0; cur_y = 0; cur_attr = 0x07;
-    term_clear_all();
+    // Allocate backing store
+    cells = (TermCell*)kmalloc((size_t)(rows * cols * (int)sizeof(TermCell)));
+    if (cells) {
+        for (int i = 0; i < rows * cols; i++) { cells[i].ch = ' '; cells[i].attr = cur_attr; }
+    }
+    // Clear pixels to background
+    fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
 }
 
 void gui_term_set_attr(u8 attr) {
@@ -142,4 +191,15 @@ void gui_term_detach(void) {
 
 void gui_term_move(u32 px, u32 py) {
     t_x = px; t_y = py;
+}
+
+void gui_term_render_all(void) {
+    term_render_all();
+}
+
+void gui_term_free(void) {
+    if (cells) {
+        kfree(cells);
+        cells = 0;
+    }
 }
