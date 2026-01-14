@@ -128,34 +128,18 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     }
 
     if (window_moved) {
-        // Old and new terminal content rects
+        // Remove old cursor drawing so it doesn't interfere
+        gui_cursor_undraw();
+        // Clear old window area fully
+        draw_rect_rgb(old_wx, old_wy, win_w, win_h, COL_BG);
+        // Draw new window frame
+        gui_draw_window();
+        // Redraw terminal content from backing store at new position
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
-        u32 oc_title_h = title_h; // same since height unchanged
-        u32 ocx = old_wx + 6;
-        u32 ocy = old_wy + 2 + oc_title_h + 4;
-        u32 ow = (win_w > 12) ? (win_w - 12) : 0;
-        u32 oh = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
         u32 ncx = win_x + 6;
         u32 ncy = win_y + 2 + title_h + 4;
-
-        // Remove old cursor drawing
-        gui_cursor_undraw();
-        // Redraw only union of old/new window as background first
-        u32 ux1 = (old_wx < win_x) ? old_wx : win_x;
-        u32 uy1 = (old_wy < win_y) ? old_wy : win_y;
-        u32 ux2_old = old_wx + win_w;
-        u32 uy2_old = old_wy + win_h;
-        u32 ux2_new = win_x + win_w;
-        u32 uy2_new = win_y + win_h;
-        u32 ux2 = (ux2_old > ux2_new) ? ux2_old : ux2_new;
-        u32 uy2 = (uy2_old > uy2_new) ? uy2_old : uy2_new;
-        draw_rect_rgb(ux1, uy1, ux2 - ux1, uy2 - uy1, COL_BG);
-        // Draw new window frame (so content copy appears on top)
-        gui_draw_window();
-        // Move terminal content by copying region
-        fb_copy_region(ocx, ocy, ow, oh, ncx, ncy);
         gui_term_move(ncx, ncy);
-        // Old region is already covered by union background fill
+        gui_term_render_all();
         // Draw cursor at new position
         gui_cursor_draw(cursor_x, cursor_y);
     } else {
@@ -251,4 +235,7 @@ static void gui_stop(void) {
         cursor_save = 0;
         cursor_saved = 0;
     }
+
+    // Free terminal backing store
+    gui_term_free();
 }

@@ -335,35 +335,47 @@ void fb_copy_region(u32 src_x, u32 src_y, u32 w, u32 h, u32 dst_x, u32 dst_y) {
     if (src_x >= g_fb.fb_width || src_y >= g_fb.fb_height) return;
     if (dst_x >= g_fb.fb_width || dst_y >= g_fb.fb_height) return;
     u32 bpp = g_fb.bytes_pp;
-    u32 max_w = g_fb.fb_width - ((src_x > dst_x) ? src_x : dst_x);
-    u32 max_h = g_fb.fb_height - ((src_y > dst_y) ? src_y : dst_y);
-    if (w > max_w) w = max_w;
-    if (h > max_h) h = max_h;
+    // Clamp to both source and dest bounds
+    u32 max_w_src = g_fb.fb_width  - src_x;
+    u32 max_w_dst = g_fb.fb_width  - dst_x;
+    u32 max_h_src = g_fb.fb_height - src_y;
+    u32 max_h_dst = g_fb.fb_height - dst_y;
+    if (w > max_w_src) w = max_w_src;
+    if (w > max_w_dst) w = max_w_dst;
+    if (h > max_h_src) h = max_h_src;
+    if (h > max_h_dst) h = max_h_dst;
 
-    int forward = 1;
-    if (dst_y > src_y) forward = 0; // copy bottom-up when moving downward to avoid overwrite
+    if (w == 0 || h == 0) return;
 
-    if (forward) {
-        for (u32 yy = 0; yy < h; yy++) {
-            volatile u8* s = g_fb.fb + (src_y + yy) * g_fb.pitch + src_x * bpp;
-            volatile u8* d = g_fb.fb + (dst_y + yy) * g_fb.pitch + dst_x * bpp;
-            if (d == s) continue;
-            if (d < s) {
-                for (u32 i = 0; i < w * bpp; i++) d[i] = s[i];
-            } else {
-                for (u32 i = w * bpp; i > 0; i--) d[i-1] = s[i-1];
-            }
-        }
-    } else {
+    // Determine safe copy order per row and per line
+    int copy_bottom_up = (dst_y > src_y);
+    int copy_right_to_left = 0;
+    if (dst_y == src_y) {
+        // Same row band; decide by x overlap
+        if (dst_x > src_x) copy_right_to_left = 1;
+    }
+
+    if (copy_bottom_up) {
         for (u32 yyo = 0; yyo < h; yyo++) {
             u32 yy = h - 1 - yyo;
             volatile u8* s = g_fb.fb + (src_y + yy) * g_fb.pitch + src_x * bpp;
             volatile u8* d = g_fb.fb + (dst_y + yy) * g_fb.pitch + dst_x * bpp;
             if (d == s) continue;
-            if (d < s) {
-                for (u32 i = 0; i < w * bpp; i++) d[i] = s[i];
-            } else {
+            if (copy_right_to_left) {
                 for (u32 i = w * bpp; i > 0; i--) d[i-1] = s[i-1];
+            } else {
+                for (u32 i = 0; i < w * bpp; i++) d[i] = s[i];
+            }
+        }
+    } else {
+        for (u32 yy = 0; yy < h; yy++) {
+            volatile u8* s = g_fb.fb + (src_y + yy) * g_fb.pitch + src_x * bpp;
+            volatile u8* d = g_fb.fb + (dst_y + yy) * g_fb.pitch + dst_x * bpp;
+            if (d == s) continue;
+            if (copy_right_to_left) {
+                for (u32 i = w * bpp; i > 0; i--) d[i-1] = s[i-1];
+            } else {
+                for (u32 i = 0; i < w * bpp; i++) d[i] = s[i];
             }
         }
     }
