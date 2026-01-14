@@ -17,6 +17,7 @@
 #include <cldramfs/cldramfs.h>
 #include <cldramfs/shell.h>
 #include <cldramfs/tty.h>
+#include <shell_control.h>
 #include <syscalls.h>
 #include <syscall_test.h>
 #include <elf_loader.h>
@@ -37,6 +38,28 @@ void shell_key_handler(u8 scancode, int is_extended, int is_pressed) {
 void handle_ps2(void) {
     ps2_handler();
     pic_send_eoi(1); // Send EOI for IRQ1
+}
+
+void shell_pause(void) {
+    shell_active = 0;
+}
+
+void shell_resume(void) {
+    // Restore shell keyboard input and mark active
+    ps2_set_key_callback(shell_key_handler);
+    shell_active = 1;
+    // Repaint prompt for usability
+    tty_print_prompt();
+}
+
+int shell_is_active(void) {
+    return shell_active;
+}
+
+// Mouse IRQ12 handler trampoline
+void handle_ps2_mouse(void) {
+    ps2_mouse_handler();
+    pic_send_eoi(12);
 }
 
 // External declaration for syscall interrupt handler (from assembly)
@@ -222,10 +245,16 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     process_init();
     
     register_interrupt_handler(33, &irq1_handler);  // IRQ1 (keyboard) = interrupt 33
+    extern void irq12_handler(void);
+    register_interrupt_handler(32 + 12, &irq12_handler); // IRQ12 (mouse)
     
     ps2_init();
+    ps2_mouse_init();
     
     pic_enable_irq(1);
+    // Unmask cascade line and mouse on the slave PIC
+    pic_enable_irq(2);
+    pic_enable_irq(12);
     
     vga_printf("Interrupts initialized\n");
     interrupts_enable();

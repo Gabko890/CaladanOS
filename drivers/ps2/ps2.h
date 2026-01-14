@@ -12,6 +12,12 @@ u128 ps2_keyarr(void);
 typedef void (*ps2_key_callback_t)(u8 scancode, int is_extended, int is_pressed);
 void ps2_set_key_callback(ps2_key_callback_t callback);
 
+// ===== PS/2 mouse (aux) support =====
+typedef void (*ps2_mouse_callback_t)(int dx, int dy, u8 buttons);
+void ps2_mouse_set_callback(ps2_mouse_callback_t callback);
+void ps2_mouse_init(void);
+void ps2_mouse_handler(void);
+
 // Letters
 #define US_A        0x1E
 #define US_A_REL    0x9E
