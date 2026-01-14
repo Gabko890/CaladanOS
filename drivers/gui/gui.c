@@ -91,6 +91,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
 
     int left_pressed = (buttons & 0x01) != 0;
     int left_was_pressed = (last_buttons & 0x01) != 0;
+    int just_released = 0;
 
     // Start drag if left just pressed inside title bar
     if (!dragging && left_pressed && !left_was_pressed) {
@@ -108,6 +109,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
 
     // Stop drag on release
     if (dragging && !left_pressed && left_was_pressed) {
+        // End of drag; mark to render content once
+        just_released = 1;
         dragging = 0;
     }
 
@@ -130,22 +133,30 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (window_moved) {
         // Remove old cursor drawing so it doesn't interfere
         gui_cursor_undraw();
-        // Clear old window area fully
+        // Clear old window area fully (fast fill)
         draw_rect_rgb(old_wx, old_wy, win_w, win_h, COL_BG);
         // Draw new window frame
         gui_draw_window();
-        // Redraw terminal content from backing store at new position
+        // Update terminal anchor to new position
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
         u32 ncx = win_x + 6;
         u32 ncy = win_y + 2 + title_h + 4;
         gui_term_move(ncx, ncy);
-        gui_term_render_all();
+        // Only redraw terminal content when drag stops to avoid heavy flicker
+        if (just_released) {
+            gui_term_render_all();
+        }
         // Draw cursor at new position
         gui_cursor_draw(cursor_x, cursor_y);
     } else {
         // Just move the cursor with save/restore
         gui_cursor_undraw();
         gui_cursor_draw(cursor_x, cursor_y);
+    }
+
+    // If drag just ended but there was no delta in this packet, ensure full terminal redraw now
+    if (just_released && !window_moved) {
+        gui_term_render_all();
     }
 
     last_buttons = buttons;
