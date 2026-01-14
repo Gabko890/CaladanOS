@@ -5,6 +5,7 @@
 #include <shell_control.h>
 #include <kmalloc.h>
 #include "term.h"
+#include "cursor_bitmap.h"
 #include "bar.h"
 
 // Simple GUI state
@@ -14,7 +15,7 @@ static int window_open = 0;
 static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
 static u32 cursor_x = 0, cursor_y = 0;
-static const u32 CURSOR_SZ = 8;
+// Cursor dimensions come from bitmap
 static int dragging = 0;
 static u32 drag_off_x = 0, drag_off_y = 0;
 static u8 last_buttons = 0;
@@ -69,19 +70,27 @@ static u32 cursor_save_x = 0, cursor_save_y = 0;
 static int cursor_saved = 0;
 static u8 fb_bpp = 0;
 
+
 static void gui_cursor_undraw(void) {
     if (cursor_saved && cursor_save) {
-        fb_blit(cursor_save_x, cursor_save_y, CURSOR_SZ, CURSOR_SZ, cursor_save);
+        fb_blit(cursor_save_x, cursor_save_y, CURSOR_W, CURSOR_H, cursor_save);
         cursor_saved = 0;
     }
 }
 
 static void gui_cursor_draw(u32 x, u32 y) {
     if (!cursor_save) return;
-    fb_copy_out(x, y, CURSOR_SZ, CURSOR_SZ, cursor_save);
+    fb_copy_out(x, y, CURSOR_W, CURSOR_H, cursor_save);
     cursor_save_x = x; cursor_save_y = y;
     cursor_saved = 1;
-    draw_rect_rgb(x, y, CURSOR_SZ, CURSOR_SZ, COL_CURSOR);
+    for (u32 yy = 0; yy < CURSOR_H; yy++) {
+        for (u32 xx = 0; xx < CURSOR_W; xx++) {
+            u8 v = CURSOR_PIXELS[yy][xx];
+            if (v == 1) fb_draw_pixel(x + xx, y + yy, 0x00, 0x00, 0x00); // outline
+            else if (v == 0) fb_draw_pixel(x + xx, y + yy, 0xFF, 0xFF, 0xFF); // fill
+            // v==2 transparent: skip
+        }
+    }
 }
 
 static void gui_mouse_cb(int dx, int dy, u8 buttons) {
@@ -94,8 +103,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     int ny = (int)cursor_y + dy;
     if (nx < 0) nx = 0;
     if (ny < 0) ny = 0;
-    if (nx > (int)(scr_w - CURSOR_SZ)) nx = (int)(scr_w - CURSOR_SZ);
-    if (ny > (int)(scr_h - CURSOR_SZ)) ny = (int)(scr_h - CURSOR_SZ);
+    if (nx > (int)(scr_w - CURSOR_W)) nx = (int)(scr_w - CURSOR_W);
+    if (ny > (int)(scr_h - CURSOR_H)) ny = (int)(scr_h - CURSOR_H);
     cursor_x = (u32)nx;
     cursor_y = (u32)ny;
 
@@ -281,13 +290,13 @@ void gui_start(void) {
     // Initial cursor position in center
     cursor_x = scr_w / 2;
     cursor_y = scr_h / 2;
-    if (cursor_x > scr_w - CURSOR_SZ) cursor_x = scr_w - CURSOR_SZ;
-    if (cursor_y > scr_h - CURSOR_SZ) cursor_y = scr_h - CURSOR_SZ;
+    if (cursor_x > scr_w - CURSOR_W) cursor_x = scr_w - CURSOR_W;
+    if (cursor_y > scr_h - CURSOR_H) cursor_y = scr_h - CURSOR_H;
 
     // Prepare cursor save buffer
     fb_bpp = fb_get_bytespp();
     if (fb_bpp == 0) return;
-    cursor_save = (u8*)kmalloc(CURSOR_SZ * CURSOR_SZ * fb_bpp);
+    cursor_save = (u8*)kmalloc(CURSOR_W * CURSOR_H * fb_bpp);
     if (!cursor_save) return;
 
     // Draw initial GUI
