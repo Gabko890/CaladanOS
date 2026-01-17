@@ -106,10 +106,10 @@ int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
                 }
                 return 0;
             case US_ARROW_UP:
-                // TODO: History navigation
+                // History navigation disabled
                 return 0;
             case US_ARROW_DOWN:
-                // TODO: History navigation
+                // History navigation disabled
                 return 0;
         }
         return 0;

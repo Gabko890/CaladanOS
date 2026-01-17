@@ -395,6 +395,7 @@ void cldramfs_cmd_echo(const char *args) {
     }
 }
 
+
 void cldramfs_cmd_rm(const char *arg) {
     if (!arg) {
         vga_printf("rm: missing file operand\n");

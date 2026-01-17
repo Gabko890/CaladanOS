@@ -25,7 +25,7 @@ static u32 menu_rect_x = 0, menu_rect_y = 0, menu_rect_w = 0, menu_rect_h = 0;
 
 // Colors
 static const u8 BAR_BG[3]    = { 0x25, 0x25, 0x28 };
-static const u8 BAR_ACC[3]   = { 0x37, 0x99, 0xFF };
+static const u8 BAR_ACC[3]   = { 0x8A, 0x2B, 0xE2 }; // purple
 static const u8 SEP_COL[3]   = { 0x40, 0x40, 0x44 };
 static const u8 TXT_COL[3]   = { 0xEE, 0xEE, 0xEE };
 static const u8 TXT_DIM[3]   = { 0xAA, 0xAA, 0xAA };
