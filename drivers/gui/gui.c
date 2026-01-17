@@ -24,7 +24,7 @@ static u8 last_buttons = 0;
 // Colors
 static const u8 COL_BG[3]     = { 0x20, 0x20, 0x20 };
 static const u8 COL_WIN[3]    = { 0xCC, 0xCC, 0xCC };
-static const u8 COL_TITLE[3]  = { 0x33, 0x66, 0x99 };
+static const u8 COL_TITLE[3]  = { 0x8A, 0x2B, 0xE2 }; // purple
 static const u8 COL_BORDER[3] = { 0x00, 0x00, 0x00 };
 static const u8 COL_CURSOR[3] = { 0x00, 0x00, 0x00 };
 
@@ -78,6 +78,19 @@ static u32 cursor_save_w = 0, cursor_save_h = 0; // actual saved dimensions (cla
 static int cursor_saved = 0;
 static u8 fb_bpp = 0;
 
+// Full re-render helper: background, window (if any), bar
+static void gui_rerender_full(void) {
+    gui_clear_all();
+    if (window_open) {
+        gui_draw_window();
+        // Recompute terminal anchor and redraw content
+        u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+        (void)title_h; // only for clarity; anchor is already set by init/move
+        gui_term_render_all();
+    }
+    gui_bar_render();
+}
+
 
 static void gui_cursor_undraw(void) {
     if (cursor_saved && cursor_save) {
@@ -127,17 +140,12 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
 
     // Hover handling for bar menu: closes when cursor leaves menu/dropdown
     if (gui_bar_on_move(cursor_x, cursor_y)) {
-        // Re-render area where dropdown was to restore background/underlying window
-        u32 rx, ry, rw, rh;
-        if (gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh)) {
-            if (window_open) {
-                gui_draw_window();
-                gui_term_render_all();
-            } else {
-                restore_bg_rect(rx, ry, rw, rh);
-            }
-            gui_cursor_draw(cursor_x, cursor_y);
-        }
+        // Close of dropdown: redraw entire background + UI for a clean state
+        // Clear last rect state (ignored) and fully rerender
+        u32 rx, ry, rw, rh; (void)gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh);
+        gui_cursor_undraw();
+        gui_rerender_full();
+        gui_cursor_draw(cursor_x, cursor_y);
     }
 
     int left_pressed = (buttons & 0x01) != 0;
@@ -148,13 +156,11 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (left_pressed && !left_was_pressed) {
         int clicked_window_id = -1;
         int action = gui_bar_on_click(cursor_x, cursor_y, &clicked_window_id);
-        // If a dropdown was closed by click, repaint its area
-        u32 rx, ry, rw, rh;
-        if (gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh)) {
-            if (window_open) { gui_draw_window(); gui_term_render_all(); }
-            else { restore_bg_rect(rx, ry, rw, rh); }
-            gui_cursor_draw(cursor_x, cursor_y);
-        }
+        // After any menu click/toggle, re-render full background + UI
+        { u32 rx, ry, rw, rh; (void)gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh); }
+        gui_cursor_undraw();
+        gui_rerender_full();
+        gui_cursor_draw(cursor_x, cursor_y);
         if (action == 1) {
             // Open new terminal (single window supported): create if none, otherwise focus
             if (!window_open) {
