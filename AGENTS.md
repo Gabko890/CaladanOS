@@ -24,8 +24,7 @@
 
 ## Testing Guidelines
 - Framework: CLDTEST (`utils/cldtest`). Place tests in `tests/` and declare in `tests/testdecls.h`.
-- Register in `CLDTEST_INIT()` and group with suites. Example:
-  `CLDTEST_WITH_SUITE("String compare", strcmp_test, string_tests) { /* asserts */ }`
+- Register in `CLDTEST_INIT()` and group with suites. Example: `CLDTEST_WITH_SUITE("String compare", strcmp_test, string_tests) { /* asserts */ }`.
 - Run: `make test && make qemu`. Results print to VGA/console. Prefer small, isolated tests.
 
 ## Commit & Pull Request Guidelines
@@ -38,6 +37,6 @@
 
 ## Agent-Specific Instructions
 - This AGENTS.md applies repo‑wide; deeper files take precedence if present.
-- Follow style, naming, and layout rules for any touched files. Keep diffs minimal and focused.
+- Follow style, naming, and layout rules; keep diffs minimal and focused.
 - Update this document when altering build, test flow, or configuration paths.
 
