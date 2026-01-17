@@ -7,6 +7,7 @@
 #include "term.h"
 #include "cursor_bitmap.h"
 #include "bar.h"
+#include "wallpaper.h"
 
 // Simple GUI state
 static int gui_active = 0;
@@ -43,8 +44,14 @@ static void draw_border(u32 x, u32 y, u32 w, u32 h, u32 t, const u8 rgb[3]) {
     if (w > t && h > 2 * t) draw_rect_rgb(x + w - t, y + t, t, h - 2 * t, rgb);
 }
 
+static void restore_bg_rect(u32 x, u32 y, u32 w, u32 h) {
+    if (gui_wallpaper_is_loaded()) gui_wallpaper_redraw_rect(x, y, w, h);
+    else draw_rect_rgb(x, y, w, h, COL_BG);
+}
+
 static void gui_clear_all(void) {
-    draw_rect_rgb(0, 0, scr_w, scr_h, COL_BG);
+    if (gui_wallpaper_is_loaded()) gui_wallpaper_draw_fullscreen();
+    else draw_rect_rgb(0, 0, scr_w, scr_h, COL_BG);
 }
 
 static void gui_draw_window(void) {
@@ -67,20 +74,30 @@ static void gui_draw_window(void) {
 // Cursor background save/restore to reduce flicker
 static u8* cursor_save = 0;
 static u32 cursor_save_x = 0, cursor_save_y = 0;
+static u32 cursor_save_w = 0, cursor_save_h = 0; // actual saved dimensions (clamped at screen edges)
 static int cursor_saved = 0;
 static u8 fb_bpp = 0;
 
 
 static void gui_cursor_undraw(void) {
     if (cursor_saved && cursor_save) {
-        fb_blit(cursor_save_x, cursor_save_y, CURSOR_W, CURSOR_H, cursor_save);
+        // Restore only the region actually saved (may be smaller near edges)
+        if (cursor_save_w > 0 && cursor_save_h > 0) {
+            fb_blit(cursor_save_x, cursor_save_y, cursor_save_w, cursor_save_h, cursor_save);
+        }
         cursor_saved = 0;
     }
 }
 
 static void gui_cursor_draw(u32 x, u32 y) {
     if (!cursor_save) return;
-    fb_copy_out(x, y, CURSOR_W, CURSOR_H, cursor_save);
+    // Save region under cursor, clamped to screen bounds
+    u32 w = CURSOR_W, h = CURSOR_H, sw = 0, sh = 0, scrw = 0, scrh = 0;
+    fb_get_resolution(&scrw, &scrh);
+    if (x + w > scrw) w = scrw - x;
+    if (y + h > scrh) h = scrh - y;
+    cursor_save_w = w; cursor_save_h = h;
+    fb_copy_out(x, y, w, h, cursor_save);
     cursor_save_x = x; cursor_save_y = y;
     cursor_saved = 1;
     for (u32 yy = 0; yy < CURSOR_H; yy++) {
@@ -117,7 +134,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 gui_draw_window();
                 gui_term_render_all();
             } else {
-                draw_rect_rgb(rx, ry, rw, rh, COL_BG);
+                restore_bg_rect(rx, ry, rw, rh);
             }
             gui_cursor_draw(cursor_x, cursor_y);
         }
@@ -135,7 +152,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         u32 rx, ry, rw, rh;
         if (gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh)) {
             if (window_open) { gui_draw_window(); gui_term_render_all(); }
-            else { draw_rect_rgb(rx, ry, rw, rh, COL_BG); }
+            else { restore_bg_rect(rx, ry, rw, rh); }
             gui_cursor_draw(cursor_x, cursor_y);
         }
         if (action == 1) {
@@ -189,7 +206,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             gui_cursor_undraw();
             gui_term_detach(); gui_term_free();
             if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
-            draw_rect_rgb(win_x, win_y, win_w, win_h, COL_BG);
+            restore_bg_rect(win_x, win_y, win_w, win_h);
             gui_bar_render();
             window_open = 0; dragging = 0; just_released = 1;
         } else if (cursor_x >= tx1 && cursor_x < tx2 && cursor_y >= ty1 && cursor_y < ty2) {
@@ -221,8 +238,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (window_open && window_moved) {
         // Remove old cursor drawing so it doesn't interfere
         gui_cursor_undraw();
-        // Clear old window area fully (fast fill)
-        draw_rect_rgb(old_wx, old_wy, win_w, win_h, COL_BG);
+        // Clear old window area fully
+        restore_bg_rect(old_wx, old_wy, win_w, win_h);
         // Draw new window frame
         gui_draw_window();
         gui_bar_render();
@@ -299,7 +316,11 @@ void gui_start(void) {
     cursor_save = (u8*)kmalloc(CURSOR_W * CURSOR_H * fb_bpp);
     if (!cursor_save) return;
 
-    // Draw initial GUI
+    // Try to load wallpaper from ramfs and clear background
+    if (!gui_wallpaper_load("/wallpapers/default.bmp")) {
+        // Fallback to legacy filename if default is missing
+        (void)gui_wallpaper_load("/wallpapers/cldwallapper.bmp");
+    }
     gui_clear_all();
     gui_draw_window();
     // Initialize and draw top bar
