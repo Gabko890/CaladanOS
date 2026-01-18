@@ -239,6 +239,62 @@ int cldramfs_shell_process_command(const char *command_line) {
         return 1;
     }
     else {
+        // Attempt to run a Lua utility from /usr/share/<cmd>.lua
+        // Extract command name (first token)
+        char name[64];
+        u32 i=0; while (cmd[i] && cmd[i] != ' ' && cmd[i] != '\t' && i < sizeof(name)-1) { name[i]=cmd[i]; i++; }
+        name[i]='\0';
+        if (name[0] != '\0') {
+            // Build /usr/share/<name>.lua
+            char fullpath[128];
+            strncpy(fullpath, "/usr/share/", sizeof(fullpath)-1); fullpath[sizeof(fullpath)-1] = '\0';
+            strncat(fullpath, name, sizeof(fullpath)-strlen(fullpath)-1);
+            strncat(fullpath, ".lua", sizeof(fullpath)-strlen(fullpath)-1);
+
+            // Verify existence
+            Node *f = cldramfs_resolve_path_file(fullpath, 0);
+            if (f && f->type == FILE_NODE) {
+                // Tokenize remaining args
+                char *rest = (char*)(cmd + i);
+                rest = skip_whitespace(rest);
+                char buf[256]; strncpy(buf, rest, sizeof(buf)-1); buf[sizeof(buf)-1] = '\0';
+                char *tokens[15]; int tcount = 0; // reserve 1 for script path
+                char *p = buf;
+                while (*p && tcount < 15) {
+                    p = skip_whitespace(p);
+                    if (!*p) break;
+                    tokens[tcount++] = p;
+                    while (*p && *p!=' ' && *p!='\t') p++;
+                    if (*p) { *p='\0'; p++; }
+                }
+                // Build task args: path + tokens
+                typedef struct { char *path; int argc; char **argv; } lua_task_args_t; // mirrored
+                lua_task_args_t *task = (lua_task_args_t*)kmalloc(sizeof(*task));
+                if (!task) { vga_printf("lua: oom\n"); return 0; }
+                task->argc = tcount + 1;
+                task->argv = (char**)kmalloc(sizeof(char*) * (tcount + 1));
+                if (!task->argv) { kfree(task); vga_printf("lua: oom\n"); return 0; }
+                // argv[0] = fullpath
+                u32 pn = strlen(fullpath); task->path = (char*)kmalloc(pn+1); if (task->path) strcpy(task->path, fullpath);
+                task->argv[0] = (char*)kmalloc(pn+1); if (task->argv[0]) strcpy(task->argv[0], fullpath);
+                for (int j=0;j<tcount;j++) { u32 n=strlen(tokens[j]); task->argv[j+1]=(char*)kmalloc(n+1); if(task->argv[j+1]) strcpy(task->argv[j+1], tokens[j]); }
+                // Pause and schedule VM
+                shell_pause();
+                extern void cld_luavm_run_deferred_with_args(void *arg);
+                if (!task->path || !task->argv[0] || deferred_schedule(cld_luavm_run_deferred_with_args, task) != 0) {
+                    vga_printf("lua: failed to schedule\n");
+                    if (task) {
+                        if (task->path) kfree(task->path);
+                        if (task->argv) {
+                            for (int j=0;j<task->argc;j++) if (task->argv[j]) kfree(task->argv[j]);
+                            kfree(task->argv);
+                        }
+                        kfree(task);
+                    }
+                }
+                return 0;
+            }
+        }
         vga_printf("Unknown command: %s\n", cmd);
         vga_printf("Type 'help' for available commands\n");
     }

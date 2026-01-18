@@ -52,8 +52,12 @@ static void vm_key_getch(u8 sc, int is_extended, int is_pressed) {
     if (!vm_waiting_ch) return;
     u128 keyarr = ps2_keyarr();
     int shift = (keyarr & ((u128)1 << 0x2A)) || (keyarr & ((u128)1 << 0x36));
+    int ctrl  = (keyarr & ((u128)1 << 0x1D)) ? 1 : 0; // left ctrl
     char c = 0;
     if (sc == US_ENTER) c = '\n';
+    else if (sc == US_BACKSPACE) c = '\b';
+    else if (ctrl && sc == US_S) c = 0x13; // Ctrl+S
+    else if (ctrl && sc == US_Q) c = 0x11; // Ctrl+Q
     else c = scancode_to_char(sc, shift);
     if (c) { vm_ch = c; vm_ch_ready = 1; vm_waiting_ch = 0; }
 }
@@ -146,9 +150,14 @@ static int l_input(lua_State *L) {
         char c = vm_ch;
         if (c == '\r') c = '\n';
         if (c == '\n') break;
-        // echo
+        if (c == '\b') {
+            if (len > 0) {
+                len--;
+                vga_printf("\x1b[D \x1b[D");
+            }
+            continue;
+        }
         vga_putchar(c);
-        // append
         if (len + 1 >= cap) {
             size_t ncap = cap * 2;
             char *nbuf = (char*)krealloc(buf, ncap);
@@ -182,6 +191,25 @@ static int l_getch(lua_State *L) {
 static int l_exit(lua_State *L) {
     (void)L; /* no-op: allow scripts to call exit() without triggering longjmp */
     return 0;
+}
+
+static int l_write(lua_State *L) {
+    size_t len = 0; const char *s = lua_tolstring(L, 1, &len);
+    if (s && len) vga_printf("%s", s);
+    return 0;
+}
+
+static int l_cls(lua_State *L) {
+    (void)L; vga_printf("\x1b[2J\x1b[H"); return 0;
+}
+
+static int l_readtext(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    if (!path) { lua_pushstring(L, ""); return 1; }
+    Node *f = cldramfs_resolve_path_file(path, 0);
+    if (!f || f->type != FILE_NODE || !f->content) { lua_pushstring(L, ""); return 1; }
+    lua_pushlstring(L, f->content, f->content_size);
+    return 1;
 }
 
 // RAMFS commands
@@ -239,6 +267,9 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     lua_pushcfunction(L, l_writefile); lua_setglobal(L, "writefile");
     lua_pushcfunction(L, l_appendfile); lua_setglobal(L, "appendfile");
     lua_pushcfunction(L, l_exit); lua_setglobal(L, "exit");
+    lua_pushcfunction(L, l_write); lua_setglobal(L, "write");
+    lua_pushcfunction(L, l_cls); lua_setglobal(L, "cls");
+    lua_pushcfunction(L, l_readtext); lua_setglobal(L, "readtext");
     lua_pushcfunction(L, l_fs_ls); lua_setglobal(L, "fs_ls");
     lua_pushcfunction(L, l_fs_cd); lua_setglobal(L, "fs_cd");
     lua_pushcfunction(L, l_fs_mkdir); lua_setglobal(L, "fs_mkdir");
