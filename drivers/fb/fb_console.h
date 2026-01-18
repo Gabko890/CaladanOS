@@ -43,6 +43,8 @@ void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr);
 // Draw char using only foreground; background remains untouched. fg_index is 0-15 VGA color index.
 void fb_draw_char_px_nobg(u32 px, u32 py, char c, u8 fg_index);
 void fb_fill_rect_attr(u32 x, u32 y, u32 w, u32 h, u8 vga_attr);
+// Fill rect using the foreground color from a VGA attribute (does not touch background).
+void fb_fill_rect_fg(u32 x, u32 y, u32 w, u32 h, u8 vga_attr);
 void fb_scroll_region_up(u32 x, u32 y, u32 w, u32 h, u32 row_px, u8 vga_attr);
 // Copy rectangle within framebuffer (safe for overlap). Uses a small line buffer.
 void fb_copy_region(u32 src_x, u32 src_y, u32 w, u32 h, u32 dst_x, u32 dst_y);

@@ -18,6 +18,7 @@ static int next_win_id = 1;
 static int menu_open = 0;
 static u32 menu_btn_x = 0, menu_btn_w = 0; // Menu button rect (y is fixed)
 static u32 menu_item_x = 0, menu_item_y = 0, menu_item_w = 0, menu_item_h = 0; // New Terminal item
+static u32 menu_item2_x = 0, menu_item2_y = 0, menu_item2_w = 0, menu_item2_h = 0; // New Editor item
 static u32 last_rect_x = 0, last_rect_y = 0, last_rect_w = 0, last_rect_h = 0;
 static int last_rect_valid = 0;
 // Live dropdown rect while open (covers all items)
@@ -111,18 +112,27 @@ void gui_bar_render(void) {
     // Dropdown menu if open
     if (menu_open && menu_count > 0 && menus[0].label) {
         const char* item1 = "New Terminal";
-        u32 itw = text_width_px(item1) + 12;
+        const char* item2 = "New Editor";
+        u32 itw1 = text_width_px(item1) + 12;
+        u32 itw2 = text_width_px(item2) + 12;
+        u32 itw  = (itw1 > itw2) ? itw1 : itw2;
         u32 ix = menu_btn_x;
         u32 iy = GUI_BAR_HEIGHT; // flush under bar to avoid hover gap
         u32 ih = 18;
+        // Item 1
         draw_rect_rgb(ix, iy, itw, ih, SEP_COL);
         draw_text(ix + 6, iy + 2, item1, 0x0F);
-        // Store hitbox
+        // Item 2
+        draw_rect_rgb(ix, iy + ih, itw, ih, SEP_COL);
+        draw_text(ix + 6, iy + ih + 2, item2, 0x0F);
+        // Store hitboxes
         menu_item_x = ix; menu_item_y = iy; menu_item_w = itw; menu_item_h = ih;
-        // Store whole dropdown rect (single item)
-        menu_rect_x = ix; menu_rect_y = iy; menu_rect_w = itw; menu_rect_h = ih;
+        menu_item2_x = ix; menu_item2_y = iy + ih; menu_item2_w = itw; menu_item2_h = ih;
+        // Store whole dropdown rect (two items)
+        menu_rect_x = ix; menu_rect_y = iy; menu_rect_w = itw; menu_rect_h = ih * 2;
     } else {
         menu_item_x = menu_item_y = menu_item_w = menu_item_h = 0;
+        menu_item2_x = menu_item2_y = menu_item2_w = menu_item2_h = 0;
         menu_rect_x = menu_rect_y = menu_rect_w = menu_rect_h = 0;
     }
 }
@@ -193,6 +203,16 @@ int gui_bar_on_click(u32 x, u32 y, int* out_window_id) {
             menu_open = 0;
             gui_bar_render();
             return 1;
+        }
+        // New Editor
+        if (x >= menu_item2_x && x < menu_item2_x + menu_item2_w &&
+            y >= menu_item2_y && y < menu_item2_y + menu_item2_h) {
+            last_rect_x = menu_rect_x; last_rect_y = menu_rect_y;
+            last_rect_w = menu_rect_w; last_rect_h = menu_rect_h;
+            last_rect_valid = 1;
+            menu_open = 0;
+            gui_bar_render();
+            return 3;
         }
         // Clicked elsewhere while open: close menu
         last_rect_x = menu_rect_x; last_rect_y = menu_rect_y;

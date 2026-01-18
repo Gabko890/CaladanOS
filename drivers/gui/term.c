@@ -12,6 +12,40 @@ static u8 cur_attr = 0x07; // white on black by default
 
 typedef struct { char ch; u8 attr; } TermCell;
 static TermCell* cells = 0; // rows*cols
+static int caret_drawn = 0;
+static int caret_x = 0, caret_y = 0;
+
+static inline u8 invert_attr(u8 a) {
+    return (u8)(((a & 0x0F) << 4) | ((a >> 4) & 0x0F));
+}
+
+static void term_draw_cell(int x, int y) {
+    if (!cells) return;
+    if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+    TermCell c = cells[y * cols + x];
+    u32 px = t_x + (u32)x * (u32)cell_w;
+    u32 py = t_y + (u32)y * (u32)cell_h;
+    fb_fill_rect_attr(px, py, (u32)cell_w, (u32)cell_h, c.attr);
+    if (c.ch != ' ') fb_draw_char_px(px, py, c.ch, c.attr);
+}
+
+static void term_caret_undraw(void) {
+    if (!caret_drawn) return;
+    term_draw_cell(caret_x, caret_y);
+    caret_drawn = 0;
+}
+
+static void term_caret_draw(void) {
+    if (!cells) return;
+    if (cur_x < 0 || cur_y < 0 || cur_x >= cols || cur_y >= rows) return;
+    TermCell c = cells[cur_y * cols + cur_x];
+    u8 inv = invert_attr(c.attr);
+    u32 px = t_x + (u32)cur_x * (u32)cell_w;
+    u32 py = t_y + (u32)cur_y * (u32)cell_h;
+    fb_fill_rect_attr(px, py, (u32)cell_w, (u32)cell_h, inv);
+    if (c.ch != ' ') fb_draw_char_px(px, py, c.ch, inv);
+    caret_x = cur_x; caret_y = cur_y; caret_drawn = 1;
+}
 
 // Minimal ANSI parser (mirrors vgaio subset)
 typedef enum {
@@ -34,6 +68,7 @@ static void term_render_all(void) {
             fb_draw_char_px(px, py, c.ch, c.attr);
         }
     }
+    term_caret_draw();
 }
 
 static void term_clear_all(void) {
@@ -43,6 +78,7 @@ static void term_clear_all(void) {
     }
     fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
     cur_x = 0; cur_y = 0;
+    caret_drawn = 0; term_caret_draw();
 }
 
 static void term_clear_line_full(void) {
@@ -52,6 +88,7 @@ static void term_clear_line_full(void) {
     }
     u32 py = t_y + (u32)cur_y * (u32)cell_h;
     fb_fill_rect_attr(t_x, py, t_w, (u32)cell_h, cur_attr);
+    caret_drawn = 0; term_caret_draw();
 }
 
 static void term_clear_to_eol(void) {
@@ -62,6 +99,7 @@ static void term_clear_to_eol(void) {
     u32 pw = t_w - (u32)cur_x * (u32)cell_w;
     u32 py = t_y + (u32)cur_y * (u32)cell_h;
     fb_fill_rect_attr(px, py, pw, (u32)cell_h, cur_attr);
+    caret_drawn = 0; term_caret_draw();
 }
 
 static void term_scroll_up(void) {
@@ -79,6 +117,7 @@ static void term_scroll_up(void) {
 }
 
 static void term_putc(char c) {
+    term_caret_undraw();
     if (c == '\n') {
         cur_x = 0; cur_y++;
     } else {
@@ -96,10 +135,12 @@ static void term_putc(char c) {
         if (cur_x >= cols) { cur_x = 0; cur_y++; }
     }
     if (cur_y >= rows) { cur_y = rows - 1; term_scroll_up(); }
+    term_caret_draw();
 }
 
 static void term_handle_ansi(void) {
     t_buf[t_buf_pos] = '\0';
+    term_caret_undraw();
     if (t_buf_pos == 1) {
         switch (t_buf[0]) {
             case 'C': // right
@@ -131,6 +172,7 @@ static void term_handle_ansi(void) {
         }
     }
     t_state = T_ANSI_NORMAL; t_buf_pos = 0;
+    term_caret_draw();
 }
 
 void gui_term_init(u32 px, u32 py, u32 pw, u32 ph) {
@@ -149,6 +191,7 @@ void gui_term_init(u32 px, u32 py, u32 pw, u32 ph) {
     }
     // Clear pixels to background
     fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
+    caret_drawn = 0; term_caret_draw();
 }
 
 void gui_term_set_attr(u8 attr) {

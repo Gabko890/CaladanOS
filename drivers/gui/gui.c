@@ -5,6 +5,7 @@
 #include <shell_control.h>
 #include <kmalloc.h>
 #include "term.h"
+#include "editor.h"
 #include "cursor_bitmap.h"
 #include "bar.h"
 #include "wallpaper.h"
@@ -12,7 +13,10 @@
 // Simple GUI state
 static int gui_active = 0;
 static int terminal_win_id = -1;
+static int editor_win_id = -1;
 static int window_open = 0;
+typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2 } win_kind_t;
+static win_kind_t cur_win = WIN_NONE;
 static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
 static u32 cursor_x = 0, cursor_y = 0;
@@ -86,7 +90,8 @@ static void gui_rerender_full(void) {
         // Recompute terminal anchor and redraw content
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
         (void)title_h; // only for clarity; anchor is already set by init/move
-        gui_term_render_all();
+        if (cur_win == WIN_TERMINAL) gui_term_render_all();
+        else if (cur_win == WIN_EDITOR) gui_editor_render_all();
     }
     gui_bar_render();
 }
@@ -163,7 +168,13 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         gui_cursor_draw(cursor_x, cursor_y);
         if (action == 1) {
             // Open new terminal (single window supported): create if none, otherwise focus
-            if (!window_open) {
+            if (!window_open || cur_win != WIN_TERMINAL) {
+                // If an editor exists, close it first
+                if (window_open && cur_win == WIN_EDITOR) {
+                    gui_editor_free();
+                    if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+                    window_open = 0; cur_win = WIN_NONE;
+                }
                 // Default window size and position (below bar)
                 win_w = scr_w / 2; win_h = scr_h / 2;
                 if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
@@ -183,17 +194,40 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 gui_term_init(content_x, content_y, content_w, content_h);
                 gui_term_attach();
                 gui_term_render_all();
-                window_open = 1;
+                window_open = 1; cur_win = WIN_TERMINAL;
             } else {
                 gui_bar_set_active_window(terminal_win_id);
                 gui_bar_render();
             }
+        } else if (action == 3) {
+            // Open simple editor; if terminal exists, close it first
+            if (window_open && cur_win == WIN_TERMINAL) {
+                gui_term_detach(); gui_term_free();
+                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            }
+            // Create editor window
+            // Default window size and position (below bar)
+            win_w = scr_w / 2; win_h = scr_h / 2;
+            if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
+            if (win_h < 80)  win_h = (scr_h > 100) ? 100 : scr_h - 20;
+            win_x = (scr_w - win_w) / 2; win_y = GUI_BAR_HEIGHT + 10;
+            gui_draw_window();
+            editor_win_id = gui_bar_register_window("Editor");
+            gui_bar_set_active_window(editor_win_id);
+            gui_bar_render();
+            u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+            u32 content_x = win_x + 6;
+            u32 content_y = win_y + 2 + title_h + 4;
+            u32 content_w = (win_w > 12) ? (win_w - 12) : 0;
+            u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
+            gui_editor_init(content_x, content_y, content_w, content_h);
+            gui_editor_render_all();
+            window_open = 1; cur_win = WIN_EDITOR;
         } else if (action == 2 && clicked_window_id > 0) {
             // Focus a window tab: set active highlight. No Z-order change for now.
-            if (clicked_window_id == terminal_win_id) {
-                gui_bar_set_active_window(terminal_win_id);
-                gui_bar_render();
-            }
+            if (clicked_window_id == terminal_win_id) { gui_bar_set_active_window(terminal_win_id); gui_bar_render(); }
+            if (clicked_window_id == editor_win_id)   { gui_bar_set_active_window(editor_win_id);   gui_bar_render(); }
         }
     }
 
@@ -208,13 +242,18 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         u32 cb = (tb_h > 14) ? 12 : (tb_h - 4);
         u32 cx1 = win_x + win_w - 6 - cb, cy1 = win_y + 4, cx2 = cx1 + cb, cy2 = cy1 + cb;
         if (cursor_x >= cx1 && cursor_x < cx2 && cursor_y >= cy1 && cursor_y < cy2) {
-            // Close current window: detach terminal, free buffer, clear area, unregister from bar
+            // Close current window: detach/free, clear area, unregister from bar
             gui_cursor_undraw();
-            gui_term_detach(); gui_term_free();
-            if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+            if (cur_win == WIN_TERMINAL) {
+                gui_term_detach(); gui_term_free();
+                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+            } else if (cur_win == WIN_EDITOR) {
+                gui_editor_free();
+                if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+            }
             restore_bg_rect(win_x, win_y, win_w, win_h);
             gui_bar_render();
-            window_open = 0; dragging = 0; just_released = 1;
+            window_open = 0; cur_win = WIN_NONE; dragging = 0; just_released = 1;
         } else if (cursor_x >= tx1 && cursor_x < tx2 && cursor_y >= ty1 && cursor_y < ty2) {
             dragging = 1;
             drag_off_x = cursor_x - win_x; drag_off_y = cursor_y - win_y;
@@ -253,10 +292,12 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
         u32 ncx = win_x + 6;
         u32 ncy = win_y + 2 + title_h + 4;
-        gui_term_move(ncx, ncy);
+        if (cur_win == WIN_TERMINAL) gui_term_move(ncx, ncy);
+        else if (cur_win == WIN_EDITOR) gui_editor_move(ncx, ncy);
         // Only redraw terminal content when drag stops to avoid heavy flicker
         if (just_released) {
-            gui_term_render_all();
+            if (cur_win == WIN_TERMINAL) gui_term_render_all();
+            else if (cur_win == WIN_EDITOR) gui_editor_render_all();
         }
         // Draw cursor at new position
         gui_cursor_draw(cursor_x, cursor_y);
@@ -268,7 +309,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
 
     // If drag just ended but there was no delta in this packet, ensure full terminal redraw now
     if (window_open && just_released && !window_moved) {
-        gui_term_render_all();
+        if (cur_win == WIN_TERMINAL) gui_term_render_all();
+        else if (cur_win == WIN_EDITOR) gui_editor_render_all();
     }
     // no other window redraw required
     // no secondary window
@@ -284,12 +326,16 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
     if (is_pressed && scancode == US_ESC) {
         gui_stop();
     }
-    // Forward keys to shell only when a terminal window is open
+    // Forward keys depending on active window
     if (window_open && is_pressed) {
-        extern int tty_global_handle_key(u8 scancode, int is_extended);
-        extern void cldramfs_shell_handle_input(void);
-        if (tty_global_handle_key(scancode, is_extended)) {
-            cldramfs_shell_handle_input();
+        if (cur_win == WIN_TERMINAL) {
+            extern int tty_global_handle_key(u8 scancode, int is_extended);
+            extern void cldramfs_shell_handle_input(void);
+            if (tty_global_handle_key(scancode, is_extended)) {
+                cldramfs_shell_handle_input();
+            }
+        } else if (cur_win == WIN_EDITOR) {
+            gui_editor_handle_key(scancode, is_extended, is_pressed);
         }
     }
 }
@@ -351,6 +397,7 @@ void gui_start(void) {
     ps2_set_key_callback(gui_key_handler);
     gui_active = 1;
     window_open = 1;
+    cur_win = WIN_TERMINAL;
 }
 
 static void gui_stop(void) {
@@ -373,12 +420,10 @@ static void gui_stop(void) {
         cursor_saved = 0;
     }
 
-    // Free terminal backing store
-    gui_term_free();
-
-    // Unregister window from bar
-    if (terminal_win_id > 0) {
-        gui_bar_unregister_window(terminal_win_id);
-        terminal_win_id = -1;
-    }
+    // Free active window backing store
+    if (cur_win == WIN_TERMINAL) gui_term_free();
+    else if (cur_win == WIN_EDITOR) gui_editor_free();
+    // Unregister windows from bar
+    if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+    if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
 }
