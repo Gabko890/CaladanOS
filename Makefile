@@ -65,6 +65,14 @@ TESTS_ASM_SOURCES   := $(shell find $(TESTS_SRC_DIR) -name '*.asm')
 TESTS_C_SOURCES     := $(shell find $(TESTS_SRC_DIR) -name '*.c')
 EXTERNAL_C_SOURCES  := $(shell find $(DLMALLOC_DIR) -name '*.c')
 
+# Lua 5.5 core (embedded VM)
+LUA_DIR := external/lua-5.5.0/src
+LUA_CORE_FILES := \
+	lapi.c lcode.c lctype.c ldebug.c ldo.c lfunc.c lgc.c llex.c lmem.c \
+	lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c ltm.c \
+	ldump.c lundump.c lvm.c lzio.c
+EXTERNAL_LUA_SOURCES := $(addprefix $(LUA_DIR)/,$(LUA_CORE_FILES))
+
 BOOT_ASM_OBJECTS    := $(patsubst $(BOOT_SRC_DIR)/%.asm, $(BUILD_DIR)/boot/%.o, $(BOOT_ASM_SOURCES))
 BOOT_C_OBJECTS      := $(patsubst $(BOOT_SRC_DIR)/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_C_SOURCES))
 KERNEL_ASM_OBJECTS  := $(patsubst $(KERNEL_SRC_DIR)/%.asm, $(BUILD_DIR)/kernel/%.o, $(KERNEL_ASM_SOURCES))
@@ -75,7 +83,8 @@ DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers
 DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
 TESTS_ASM_OBJECTS   := $(patsubst $(TESTS_SRC_DIR)/%.asm, $(BUILD_DIR)/tests/%.o, $(TESTS_ASM_SOURCES))
 TESTS_C_OBJECTS     := $(patsubst $(TESTS_SRC_DIR)/%.c, $(BUILD_DIR)/tests/%.o, $(TESTS_C_SOURCES))
-EXTERNAL_C_OBJECTS  := $(patsubst $(DLMALLOC_DIR)/%.c, $(BUILD_DIR)/external/dlmalloc/%.o, $(EXTERNAL_C_SOURCES))
+EXTERNAL_C_OBJECTS  := $(patsubst $(DLMALLOC_DIR)/%.c, $(BUILD_DIR)/external/dlmalloc/%.o, $(EXTERNAL_C_SOURCES)) \
+	$(patsubst $(LUA_DIR)/%.c, $(BUILD_DIR)/external/lua/%.o, $(EXTERNAL_LUA_SOURCES))
 CLDTEST_OBJECT      := $(BUILD_DIR)/utils/cldtest/cldtest.o
 
 UTILS_SUBDIRS  := $(shell find $(UTILS_DIR) -type d)
@@ -177,6 +186,15 @@ ifdef ENABLE_TESTS
 	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
 else
 	@$(CC) $(CFLAGS) -c $< -o $@
+endif
+
+$(BUILD_DIR)/external/lua/%.o: $(LUA_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "$(COLOR_GREEN)Compiling external lua:$(COLOR_RESET) $<"
+ifdef ENABLE_TESTS
+	@$(CC) $(CFLAGS_WITH_TESTS) -I$(LUA_DIR) -Iutils/compat -Dl_signalT=int -c $< -o $@
+else
+	@$(CC) $(CFLAGS) -I$(LUA_DIR) -Iutils/compat -Dl_signalT=int -c $< -o $@
 endif
 
 build-x86_64:

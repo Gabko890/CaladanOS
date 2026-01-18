@@ -18,6 +18,9 @@ char *strncat(char *dst, const char *src, size_t n);
 char *strchr(const char *s, int c);
 char *strrchr(const char *s, int c);
 char *strstr(const char *haystack, const char *needle);
+char *strpbrk(const char *s, const char *accept);
+size_t strspn(const char *s, const char *accept);
+int strcoll(const char *s1, const char *s2);
 
 void *memcpy(void *dst, const void *src, size_t n);
 void *memmove(void *dst, const void *src, size_t n);

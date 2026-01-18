@@ -1,5 +1,4 @@
 print("Enter your name:")
-input("> ")
+name = input("> ")
 print("You typed:")
-print(last)
-
+print(name)

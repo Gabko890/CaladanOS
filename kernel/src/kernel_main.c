@@ -27,12 +27,19 @@
 
 // Shell integration globals
 static int shell_active = 0;
+static volatile int shell_capture = 0;
+static volatile int shell_capture_ready = 0;
 
 // Key handler for shell
 void shell_key_handler(u8 scancode, int is_extended, int is_pressed) {
-    if (shell_active && tty_global_handle_key(scancode, is_extended)) {
-        // Line is ready, process it
-        cldramfs_shell_handle_input();
+    (void)is_pressed;
+    if ((shell_active || shell_capture) && tty_global_handle_key(scancode, is_extended)) {
+        if (shell_capture) {
+            shell_capture_ready = 1;
+        } else {
+            // Line is ready, process it
+            cldramfs_shell_handle_input();
+        }
     }
 }
 
@@ -55,6 +62,20 @@ void shell_resume(void) {
 
 int shell_is_active(void) {
     return shell_active;
+}
+
+void shell_capture_begin(void) {
+    shell_capture_ready = 0;
+    shell_capture = 1;
+}
+
+void shell_capture_end(void) {
+    shell_capture = 0;
+    shell_capture_ready = 0;
+}
+
+int shell_capture_is_ready(void) {
+    return shell_capture_ready;
 }
 
 // Mouse IRQ12 handler trampoline
@@ -114,6 +135,20 @@ static void dbg_reg_print(struct memory_info* minfo) {
 }
 
 void kernel_main(volatile u32 magic, u32 mb2_info) {
+    // Enable FPU/SSE for floating-point operations used by Lua VM and others
+    {
+        unsigned long cr0, cr4;
+        __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
+        cr0 &= ~(1UL << 2);  // CR0.EM = 0 (enable FPU)
+        cr0 |=  (1UL << 1);  // CR0.MP = 1 (monitor co-processor)
+        cr0 |=  (1UL << 5);  // CR0.NE = 1 (native x87 error)
+        __asm__ volatile ("mov %0, %%cr0" :: "r"(cr0) : "memory");
+        __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
+        cr4 |=  (1UL << 9);  // CR4.OSFXSR = 1 (enable FXSAVE/FXRSTOR)
+        cr4 |=  (1UL << 10); // CR4.OSXMMEXCPT = 1 (enable unmasked SSE exceptions)
+        __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4) : "memory");
+        __asm__ volatile ("fninit");
+    }
     // Initialize framebuffer console as early as possible; disables VGA writes if present
     fb_console_init_from_mb2(mb2_info);
     vga_attr(0x0B);
