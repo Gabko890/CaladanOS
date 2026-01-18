@@ -6,6 +6,9 @@
 #include <gui/gui.h>
 #include <fb/fb_console.h>
 #include <shell_control.h>
+#include <deferred.h>
+#include <lua_interp.h>
+#include <kmalloc.h>
 
 // External TTY functions
 extern void tty_global_init(void);
@@ -156,6 +159,24 @@ int cldramfs_shell_process_command(const char *command_line) {
             vga_printf("usage: exec <filename.o>\n");
         }
     }
+    else if (strncmp(cmd, "lua", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
+        char *arg = find_arg(cmd);
+        if (!arg || !*arg) {
+            vga_printf("lua: usage: lua <script.lua>\n");
+        } else {
+            // Pause shell input and defer execution outside IRQ context
+            shell_pause();
+            char *copy = NULL;
+            u32 n = strlen(arg);
+            copy = (char*)kmalloc(n + 1);
+            if (copy) { strcpy(copy, arg); }
+            extern void cld_lua_run_deferred(void *arg);
+            if (!copy || deferred_schedule(cld_lua_run_deferred, copy) != 0) {
+                vga_printf("lua: failed to schedule\n");
+                if (copy) kfree(copy);
+            }
+        }
+    }
     else if (strcmp(cmd, "help") == 0) {
         vga_printf("Available commands:\n");
         vga_printf("  ls [path]           - List directory contents\n");
@@ -170,6 +191,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  echo [text]         - Print text to stdout\n");
         vga_printf("  echo [text] > file  - Write text to file\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
+        vga_printf("  lua <script.lua>    - Run simple Lua-like script\n");
         vga_printf("  startgui            - Start GUI (mouse; Esc to exit)\n");
         vga_printf("  echo [text] >> file - Append text to file\n");
         vga_printf("  clear               - Clear screen\n");

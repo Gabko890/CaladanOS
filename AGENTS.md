@@ -2,8 +2,8 @@
 
 ## Project Structure & Module Organization
 - Source: `boot/src`, `kernel/src`, `drivers/`, `utils/` (headers in matching `include/` trees).
-- Tests: `tests/` (C tests compiled into the kernel via CLDTEST). Declarations in `tests/testdecls.h`.
-- Assets: `ramfs/` (packed into `iso/boot/ramfs.cpio`); `programs/` (assembled into `ramfs/bin`).
+- Tests: `tests/` (C tests compiled via CLDTEST). Declarations in `tests/testdecls.h`.
+- Assets: `ramfs/` (packed to `iso/boot/ramfs.cpio`); `programs/` (assembled into `ramfs/bin`).
 - Build output: `build/` (ISO at `build/CaladanOS.iso`).
 - Config: `config/grub.cfg`, linker script `targets/x86_64.ld`, third‑party in `external/dlmalloc`.
 
@@ -11,7 +11,7 @@
 - `make build-docker` — build the toolchain image (`cld-kernel-env`).
 - `make` or `make build` — build the ISO → `build/CaladanOS.iso`.
 - `make test` — build with tests enabled (`ENABLE_TESTS=1`).
-- `make qemu` — boot the built ISO in QEMU. Toggle ISA debug console: `QEMU_ISA_DEBUGCON=true make qemu`.
+- `make qemu` — boot the built ISO in QEMU. Example: `QEMU_ISA_DEBUGCON=true make qemu`.
 - `make clean` — remove artifacts under `build/`.
 - Local (no Docker): `make build-x86_64` (requires `nasm`, `x86_64-elf-gcc`, `x86_64-elf-ld`, `grub-mkrescue`).
 
@@ -20,7 +20,7 @@
 - Indentation: 4 spaces; K&R braces (same line).
 - Naming: `lower_snake_case` for functions/variables; `UPPER_SNAKE_CASE` for macros/const; header guards like `FOO_BAR_H`.
 - Types: prefer fixed widths from `utils/cldtypes` (e.g., `u8`, `u32`, `u64`).
-- File layout: C in `*/src`, headers in `*/include`; keep private functions `static`.
+- Layout: C in `*/src`, headers in `*/include`; keep private functions `static`.
 
 ## Testing Guidelines
 - Framework: CLDTEST (`utils/cldtest`). Place tests in `tests/` and declare in `tests/testdecls.h`.
