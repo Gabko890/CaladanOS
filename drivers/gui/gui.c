@@ -28,7 +28,7 @@ static u8 last_buttons = 0;
 // Colors
 static const u8 COL_BG[3]     = { 0x20, 0x20, 0x20 };
 static const u8 COL_WIN[3]    = { 0xCC, 0xCC, 0xCC };
-static const u8 COL_TITLE[3]  = { 0x8A, 0x2B, 0xE2 }; // purple
+static const u8 COL_TITLE[3]  = { 0x60, 0x60, 0x64 }; // stylish gray
 static const u8 COL_BORDER[3] = { 0x00, 0x00, 0x00 };
 static const u8 COL_CURSOR[3] = { 0x00, 0x00, 0x00 };
 
@@ -90,8 +90,14 @@ static void gui_rerender_full(void) {
         // Recompute terminal anchor and redraw content
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
         (void)title_h; // only for clarity; anchor is already set by init/move
-        if (cur_win == WIN_TERMINAL) gui_term_render_all();
-        else if (cur_win == WIN_EDITOR) gui_editor_render_all();
+        if (cur_win == WIN_TERMINAL) {
+            gui_term_render_all();
+        } else if (cur_win == WIN_EDITOR) {
+            // Provide titlebar geometry to editor and draw its overlays on title bar
+            gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
+            gui_editor_render_all();
+            gui_editor_draw_overlays();
+        }
     }
     gui_bar_render();
 }
@@ -152,10 +158,19 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         gui_rerender_full();
         gui_cursor_draw(cursor_x, cursor_y);
     }
+    // Close editor's menu on move outside
+    if (cur_win == WIN_EDITOR) {
+        if (gui_editor_on_move(cursor_x, cursor_y)) {
+            gui_cursor_undraw();
+            gui_rerender_full();
+            gui_cursor_draw(cursor_x, cursor_y);
+        }
+    }
 
     int left_pressed = (buttons & 0x01) != 0;
     int left_was_pressed = (last_buttons & 0x01) != 0;
     int just_released = 0;
+    int editor_click_consumed_local = 0;
 
     // Handle bar clicks (menu/dropdown)
     if (left_pressed && !left_was_pressed) {
@@ -222,17 +237,29 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             u32 content_w = (win_w > 12) ? (win_w - 12) : 0;
             u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
             gui_editor_init(content_x, content_y, content_w, content_h);
-            gui_editor_render_all();
             window_open = 1; cur_win = WIN_EDITOR;
+            gui_rerender_full();
         } else if (action == 2 && clicked_window_id > 0) {
             // Focus a window tab: set active highlight. No Z-order change for now.
             if (clicked_window_id == terminal_win_id) { gui_bar_set_active_window(terminal_win_id); gui_bar_render(); }
             if (clicked_window_id == editor_win_id)   { gui_bar_set_active_window(editor_win_id);   gui_bar_render(); }
         }
+        // Forward click to editor window UI (File menu)
+        if (cur_win == WIN_EDITOR) {
+            gui_cursor_undraw();
+            if (gui_editor_on_click(cursor_x, cursor_y)) {
+                editor_click_consumed_local = 1;
+                gui_rerender_full();
+            }
+            gui_cursor_draw(cursor_x, cursor_y);
+        }
     }
 
     // Start drag if left just pressed inside title bar (only when a window is open)
     if (window_open && !dragging && left_pressed && !left_was_pressed) {
+        if (cur_win == WIN_EDITOR && editor_click_consumed_local) {
+            last_buttons = buttons; return;
+        }
         u32 tb_h = (win_h > 24) ? 24 : (win_h / 8);
         u32 tx1 = win_x + 2;
         u32 ty1 = win_y + 2;
@@ -297,7 +324,16 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         // Only redraw terminal content when drag stops to avoid heavy flicker
         if (just_released) {
             if (cur_win == WIN_TERMINAL) gui_term_render_all();
-            else if (cur_win == WIN_EDITOR) gui_editor_render_all();
+            else if (cur_win == WIN_EDITOR) {
+                gui_editor_render_all();
+                gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
+                gui_editor_draw_overlays();
+            }
+        } else {
+            if (cur_win == WIN_EDITOR) {
+                gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
+                gui_editor_draw_overlays();
+            }
         }
         // Draw cursor at new position
         gui_cursor_draw(cursor_x, cursor_y);
