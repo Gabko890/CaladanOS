@@ -95,6 +95,30 @@ char *strstr(const char *haystack, const char *needle) {
     return NULL;
 }
 
+char *strpbrk(const char *s, const char *accept) {
+    if (!s || !accept) return NULL;
+    for (; *s; ++s) {
+        const char *a = accept;
+        while (*a) { if (*a == *s) return (char*)s; ++a; }
+    }
+    return NULL;
+}
+
+size_t strspn(const char *s, const char *accept) {
+    if (!s || !accept) return 0;
+    size_t n = 0;
+    for (; *s; ++s) {
+        const char *a = accept; int found = 0;
+        while (*a) { if (*a == *s) { found = 1; break; } ++a; }
+        if (!found) break; else n++;
+    }
+    return n;
+}
+
+int strcoll(const char *s1, const char *s2) {
+    return strcmp(s1, s2);
+}
+
 /* memcpy / memmove / memset / memcmp */
 void *memcpy(void *dst, const void *src, size_t n) {
     if (!dst || !src) return NULL;
@@ -131,4 +155,3 @@ int memcmp(const void *s1, const void *s2, size_t n) {
     }
     return 0;
 }
-

@@ -1,5 +1,4 @@
 print("Press any key (hidden): ")
-getch()
+ch = getch()
 print("You pressed:")
-print(last)
-
+print(ch)

@@ -7,7 +7,7 @@
 #include <fb/fb_console.h>
 #include <shell_control.h>
 #include <deferred.h>
-#include <lua_interp.h>
+#include <lua_vm.h>
 #include <kmalloc.h>
 
 // External TTY functions
@@ -160,20 +160,44 @@ int cldramfs_shell_process_command(const char *command_line) {
         }
     }
     else if (strncmp(cmd, "lua", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
-        char *arg = find_arg(cmd);
-        if (!arg || !*arg) {
-            vga_printf("lua: usage: lua <script.lua>\n");
+        char *argline = find_arg(cmd);
+        if (!argline || !*argline) {
+            vga_printf("lua: usage: lua <script.lua> [args...]\n");
         } else {
-            // Pause shell input and defer execution outside IRQ context
-            shell_pause();
-            char *copy = NULL;
-            u32 n = strlen(arg);
-            copy = (char*)kmalloc(n + 1);
-            if (copy) { strcpy(copy, arg); }
-            extern void cld_lua_run_deferred(void *arg);
-            if (!copy || deferred_schedule(cld_lua_run_deferred, copy) != 0) {
-                vga_printf("lua: failed to schedule\n");
-                if (copy) kfree(copy);
+            // Split into tokens: script + args
+            char buf[256]; strncpy(buf, argline, sizeof(buf)-1); buf[sizeof(buf)-1] = '\0';
+            char *tokens[16]; int tcount = 0;
+            char *p = buf;
+            while (*p && tcount < 16) {
+                p = skip_whitespace(p);
+                if (!*p) break;
+                tokens[tcount++] = p;
+                while (*p && *p!=' ' && *p!='\t') p++;
+                if (*p) { *p='\0'; p++; }
+            }
+            if (tcount <= 0) { vga_printf("lua: bad args\n"); }
+            else {
+                // Build task args
+                typedef struct { char *path; int argc; char **argv; } lua_task_args_t; // mirrored
+                lua_task_args_t *task = (lua_task_args_t*)kmalloc(sizeof(*task));
+                if (!task) { vga_printf("lua: oom\n"); return 0; }
+                task->argc = tcount;
+                task->argv = (char**)kmalloc(sizeof(char*) * tcount);
+                if (!task->argv) { kfree(task); vga_printf("lua: oom\n"); return 0; }
+                for (int i=0;i<tcount;i++){ u32 n=strlen(tokens[i]); task->argv[i]=(char*)kmalloc(n+1); if(task->argv[i]) strcpy(task->argv[i], tokens[i]); }
+                u32 pn = strlen(tokens[0]); task->path = (char*)kmalloc(pn+1); if (task->path) strcpy(task->path, tokens[0]);
+                // Pause and schedule
+                shell_pause();
+                extern void cld_luavm_run_deferred_with_args(void *arg);
+                if (!task->path || deferred_schedule(cld_luavm_run_deferred_with_args, task) != 0) {
+                    vga_printf("lua: failed to schedule\n");
+                    if (task) {
+                        if (task->path) kfree(task->path);
+                        for (int i=0;i<tcount;i++) if (task->argv[i]) kfree(task->argv[i]);
+                        kfree(task->argv);
+                        kfree(task);
+                    }
+                }
             }
         }
     }
