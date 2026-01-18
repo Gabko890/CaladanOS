@@ -75,6 +75,26 @@ static void gui_draw_window(void) {
     }
 }
 
+// Redraw only the current window area and its content/overlays (not the top bar)
+static void gui_redraw_window_only(void) {
+    if (!window_open) return;
+    gui_draw_window();
+    u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+    u32 ncx = win_x + 6;
+    u32 ncy = win_y + 2 + title_h + 4;
+    if (cur_win == WIN_TERMINAL) {
+        gui_term_move(ncx, ncy);
+        gui_term_render_all();
+    } else if (cur_win == WIN_EDITOR) {
+        gui_editor_move(ncx, ncy);
+        gui_editor_render_all();
+        gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
+        gui_editor_draw_overlays();
+    }
+}
+
+// (no window-only redraw; rely on full rerender for simplicity)
+
 // Cursor background save/restore to reduce flicker
 static u8* cursor_save = 0;
 static u32 cursor_save_x = 0, cursor_save_y = 0;
@@ -151,18 +171,19 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
 
     // Hover handling for bar menu: closes when cursor leaves menu/dropdown
     if (gui_bar_on_move(cursor_x, cursor_y)) {
-        // Close of dropdown: redraw entire background + UI for a clean state
-        // Clear last rect state (ignored) and fully rerender
-        u32 rx, ry, rw, rh; (void)gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh);
+        // Bar repainted; restore dropdown area to background and refresh window underneath
+        u32 rx, ry, rw, rh;
+        int had_rect = gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh);
         gui_cursor_undraw();
-        gui_rerender_full();
+        if (had_rect) restore_bg_rect(rx, ry, rw, rh);
+        gui_redraw_window_only();
         gui_cursor_draw(cursor_x, cursor_y);
     }
     // Close editor's menu on move outside
     if (cur_win == WIN_EDITOR) {
         if (gui_editor_on_move(cursor_x, cursor_y)) {
             gui_cursor_undraw();
-            gui_rerender_full();
+            gui_redraw_window_only();
             gui_cursor_draw(cursor_x, cursor_y);
         }
     }
@@ -172,15 +193,26 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     int just_released = 0;
     int editor_click_consumed_local = 0;
 
-    // Handle bar clicks (menu/dropdown)
+    // Handle bar clicks (menu/dropdown) only if clicking in bar area or when bar menu is open
     if (left_pressed && !left_was_pressed) {
         int clicked_window_id = -1;
-        int action = gui_bar_on_click(cursor_x, cursor_y, &clicked_window_id);
-        // After any menu click/toggle, re-render full background + UI
-        { u32 rx, ry, rw, rh; (void)gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh); }
-        gui_cursor_undraw();
-        gui_rerender_full();
-        gui_cursor_draw(cursor_x, cursor_y);
+        int action = 0;
+        if (cursor_y < GUI_BAR_HEIGHT || gui_bar_is_menu_open()) {
+            // Track state and rect to restore if menu closes
+            int was_open = gui_bar_is_menu_open();
+            u32 prev_rx=0, prev_ry=0, prev_rw=0, prev_rh=0; (void)gui_bar_get_current_dropdown_rect(&prev_rx, &prev_ry, &prev_rw, &prev_rh);
+            gui_cursor_undraw();
+            action = gui_bar_on_click(cursor_x, cursor_y, &clicked_window_id);
+            int is_open = gui_bar_is_menu_open();
+            if (was_open && !is_open && prev_rw && prev_rh) {
+                restore_bg_rect(prev_rx, prev_ry, prev_rw, prev_rh);
+                gui_redraw_window_only();
+            }
+            // Fallback for programmatic close
+            u32 rx, ry, rw, rh; int closed = gui_bar_get_last_dropdown_rect(&rx, &ry, &rw, &rh);
+            if (closed) { restore_bg_rect(rx, ry, rw, rh); gui_redraw_window_only(); }
+            gui_cursor_draw(cursor_x, cursor_y);
+        }
         if (action == 1) {
             // Open new terminal (single window supported): create if none, otherwise focus
             if (!window_open || cur_win != WIN_TERMINAL) {
@@ -247,10 +279,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         // Forward click to editor window UI (File menu)
         if (cur_win == WIN_EDITOR) {
             gui_cursor_undraw();
-            if (gui_editor_on_click(cursor_x, cursor_y)) {
-                editor_click_consumed_local = 1;
-                gui_rerender_full();
-            }
+            if (gui_editor_on_click(cursor_x, cursor_y)) { editor_click_consumed_local = 1; gui_rerender_full(); }
             gui_cursor_draw(cursor_x, cursor_y);
         }
     }
@@ -303,6 +332,9 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         // Dragging terminal
         if (new_wx < 0) new_wx = 0; if (new_wy < 0) new_wy = 0;
         if (new_wx > (int)(scr_w - win_w)) new_wx = (int)(scr_w - win_w);
+        // Prevent overlapping the top bar
+        int min_y = (int)GUI_BAR_HEIGHT + 2; // keep a small gap for window border
+        if (new_wy < min_y) new_wy = min_y;
         if (new_wy > (int)(scr_h - win_h)) new_wy = (int)(scr_h - win_h);
         if (win_x != (u32)new_wx || win_y != (u32)new_wy) { win_x = (u32)new_wx; win_y = (u32)new_wy; window_moved = 1; }
     }
@@ -312,9 +344,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         gui_cursor_undraw();
         // Clear old window area fully
         restore_bg_rect(old_wx, old_wy, win_w, win_h);
-        // Draw new window frame
+        // Draw new window frame (bar unchanged while dragging)
         gui_draw_window();
-        gui_bar_render();
         // Update terminal anchor to new position
         u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
         u32 ncx = win_x + 6;
