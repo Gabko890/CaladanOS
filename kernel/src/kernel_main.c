@@ -22,6 +22,7 @@
 #include <syscall_test.h>
 #include <elf_loader.h>
 #include <process.h>
+#include <deferred.h>
 #include <fb/fb_console.h>
 
 // Shell integration globals
@@ -299,6 +300,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
         // Main shell loop
         while(cldramfs_shell_is_running()) {
             __asm__ volatile("hlt"); // Wait for interrupts
+            // Run any deferred tasks outside IRQ context
+            deferred_process_all();
         }
         
         vga_printf("Shell exited\n");
