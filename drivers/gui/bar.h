@@ -17,6 +17,9 @@ int gui_bar_on_move(u32 x, u32 y);
 // Get last dropdown rectangle for background refresh after closing.
 // Returns 1 if valid, else 0.
 int gui_bar_get_last_dropdown_rect(u32* x, u32* y, u32* w, u32* h);
+// Query current menu-open state and current dropdown rect (if open)
+int gui_bar_is_menu_open(void);
+int gui_bar_get_current_dropdown_rect(u32* x, u32* y, u32* w, u32* h);
 
 // Menu management (optional)
 int  gui_bar_add_menu(const char* label);   // returns menu id or -1

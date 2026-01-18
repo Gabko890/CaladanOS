@@ -265,3 +265,11 @@ int gui_bar_get_last_dropdown_rect(u32* x, u32* y, u32* w, u32* h) {
     last_rect_valid = 0;
     return 1;
 }
+
+int gui_bar_is_menu_open(void) { return menu_open; }
+
+int gui_bar_get_current_dropdown_rect(u32* x, u32* y, u32* w, u32* h) {
+    if (!menu_open || menu_rect_w == 0 || menu_rect_h == 0) return 0;
+    if (x) *x = menu_rect_x; if (y) *y = menu_rect_y; if (w) *w = menu_rect_w; if (h) *h = menu_rect_h;
+    return 1;
+}
