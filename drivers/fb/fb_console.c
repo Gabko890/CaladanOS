@@ -287,6 +287,11 @@ void fb_fill_rect_attr(u32 x, u32 y, u32 w, u32 h, u8 vga_attr) {
     fill_rect(x, y, w, h, bg);
 }
 
+void fb_fill_rect_fg(u32 x, u32 y, u32 w, u32 h, u8 vga_attr) {
+    const u8* fg = PALETTE[fg_idx(vga_attr) & 0x0F];
+    fill_rect(x, y, w, h, fg);
+}
+
 void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr) {
     if (!g_has_font || !g_has_fb) return;
     const u8* fg = PALETTE[fg_idx(vga_attr) & 0x0F];

@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <portio.h>
 #include <fb/fb_console.h>
+#include <kmalloc.h>
 
 
 static volatile char* vga_addr = (volatile char*) 0xb8000;
@@ -27,6 +28,62 @@ typedef enum {
 static ansi_state_t ansi_state = ANSI_STATE_NORMAL;
 static char ansi_buffer[16];
 static int ansi_buffer_pos = 0;
+
+// Software caret for framebuffer console (underline style)
+static u8* fb_cur_save = NULL;
+static u32 fb_cur_sx = 0, fb_cur_sy = 0, fb_cur_w = 0, fb_cur_h = 0;
+static int fb_cur_valid = 0;
+static int fb_cw = 8, fb_ch = 16;
+static u8 fb_bpp = 0;
+
+static void fb_softcursor_prepare(void) {
+    if (!fb_console_present()) return;
+    if (!fb_bpp) fb_bpp = fb_get_bytespp();
+    if (fb_cw <= 0 || fb_ch <= 0) {
+        int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
+        fb_cw = cw; fb_ch = ch;
+    }
+    if (!fb_cur_save) {
+        // caret height: max(2, cell_h/6)
+        u32 caret_h = (u32)(fb_ch / 6);
+        if (caret_h < 2) caret_h = 2;
+        fb_cur_w = (u32)fb_cw;
+        fb_cur_h = caret_h;
+        fb_cur_save = (u8*)kmalloc((size_t)(fb_cur_w * fb_cur_h * fb_bpp));
+    }
+}
+
+static void fb_softcursor_undraw(void) {
+    if (!fb_console_present()) return;
+    if (!fb_cur_save || !fb_cur_valid) return;
+    fb_blit(fb_cur_sx, fb_cur_sy, fb_cur_w, fb_cur_h, fb_cur_save);
+    fb_cur_valid = 0;
+}
+
+static void fb_softcursor_draw(void) {
+    if (!fb_console_present()) return;
+    fb_softcursor_prepare();
+    if (!fb_cur_save || fb_cw <= 0 || fb_ch <= 0) return;
+    // Compute caret rectangle under current cursor cell (bottom underline)
+    u32 px = (u32)cursor.x * (u32)fb_cw;
+    u32 py = (u32)cursor.y * (u32)fb_ch;
+    u32 caret_h = fb_cur_h;
+    if (caret_h > (u32)fb_ch) caret_h = (u32)fb_ch;
+    if (caret_h == 0) caret_h = 1;
+    u32 cy = py + (u32)fb_ch - caret_h;
+    // Clamp to screen bounds for safe save/restore
+    u32 scrw = 0, scrh = 0; fb_get_resolution(&scrw, &scrh);
+    u32 w = (u32)fb_cw, h = caret_h;
+    if (px + w > scrw) w = (scrw > px) ? (scrw - px) : 0;
+    if (cy + h > scrh) h = (scrh > cy) ? (scrh - cy) : 0;
+    if (w == 0 || h == 0) return;
+    // Save region and draw foreground-colored underline
+    fb_copy_out(px, cy, w, h, fb_cur_save);
+    fb_cur_sx = px; fb_cur_sy = cy; fb_cur_w = w; fb_cur_h = h;
+    // Always render caret in default shell text color (light gray on black)
+    fb_fill_rect_fg(px, cy, w, h, 0x07);
+    fb_cur_valid = 1;
+}
 
 
 void vga_update_cursor(int x, int y) {
@@ -75,17 +132,20 @@ static void vga_handle_ansi_sequence(void) {
                     cursor.x++;
                     vga_update_cursor(cursor.x, cursor.y);
                 }
+                if (fb_console_present()) fb_softcursor_draw();
                 break;
             case 'D': // Move cursor left
                 if (cursor.x > 0) {
                     cursor.x--;
                     vga_update_cursor(cursor.x, cursor.y);
                 }
+                if (fb_console_present()) fb_softcursor_draw();
                 break;
             case 'H': // Move cursor to home position
                 cursor.x = 0;
                 cursor.y = 0;
                 vga_update_cursor(cursor.x, cursor.y);
+                if (fb_console_present()) fb_softcursor_draw();
                 break;
             case 'K': // Clear to end of line
                 vga_clear_to_eol();
@@ -93,6 +153,7 @@ static void vga_handle_ansi_sequence(void) {
             case 'G': // Move cursor to beginning of line
                 cursor.x = 0;
                 vga_update_cursor(cursor.x, cursor.y);
+                if (fb_console_present()) fb_softcursor_draw();
                 break;
         }
     } else if (ansi_buffer_pos == 2) {
@@ -103,6 +164,7 @@ static void vga_handle_ansi_sequence(void) {
                     cursor.x = 0;
                     cursor.y = 0;
                     vga_update_cursor(cursor.x, cursor.y);
+                    if (fb_console_present()) fb_softcursor_draw();
                     break;
                 case 'K': // Clear entire line
                     vga_clear_line();
@@ -110,7 +172,6 @@ static void vga_handle_ansi_sequence(void) {
             }
         }
     }
-    
     // Reset state
     ansi_state = ANSI_STATE_NORMAL;
     ansi_buffer_pos = 0;
@@ -121,6 +182,7 @@ void vga_putchar(char c) {
         g_putchar_sink(c);
         if (g_putchar_sink_suppress) return;
     }
+    if (fb_console_present()) fb_softcursor_undraw();
     // Handle ANSI escape sequences
     switch (ansi_state) {
         case ANSI_STATE_NORMAL:
@@ -209,6 +271,7 @@ void vga_putchar(char c) {
     }
 
     vga_update_cursor(cursor.x, cursor.y);
+    if (fb_console_present()) fb_softcursor_draw();
 
     #ifdef QEMU_ISA_DEBUGCON
     outb(0xe9, c);
@@ -225,6 +288,7 @@ void vga_attr(u8 _arrt) {
 
 void vga_clear_screen(void) {
     if (fb_console_present()) {
+        fb_softcursor_undraw();
         fb_console_set_color(arrt);
         fb_console_clear();
     } else {
@@ -236,11 +300,14 @@ void vga_clear_screen(void) {
     cursor.x = 0;
     cursor.y = 0;
     vga_update_cursor(cursor.x, cursor.y);
+    if (fb_console_present()) fb_softcursor_draw();
 }
 
 void vga_clear_line(void) {
     if (fb_console_present()) {
+        fb_softcursor_undraw();
         fb_console_clear_line(cursor.y, arrt);
+        fb_softcursor_draw();
     } else {
         int line_start = cursor.y * VGA_WIDTH * 2;
         for (int i = 0; i < VGA_WIDTH * 2; i += 2) {
@@ -252,7 +319,9 @@ void vga_clear_line(void) {
 
 void vga_clear_to_eol(void) {
     if (fb_console_present()) {
+        fb_softcursor_undraw();
         fb_console_clear_to_eol(cursor.x, cursor.y, arrt);
+        fb_softcursor_draw();
     } else {
         int pos = (cursor.y * VGA_WIDTH + cursor.x) * 2;
         int line_end = (cursor.y * VGA_WIDTH + VGA_WIDTH) * 2;
@@ -265,23 +334,29 @@ void vga_clear_to_eol(void) {
 
 void vga_move_cursor_left(void) {
     if (cursor.x > 0) {
+        if (fb_console_present()) fb_softcursor_undraw();
         cursor.x--;
         vga_update_cursor(cursor.x, cursor.y);
+        if (fb_console_present()) fb_softcursor_draw();
     }
 }
 
 void vga_move_cursor_right(void) {
     int w = text_width();
     if (cursor.x < w - 1) {
+        if (fb_console_present()) fb_softcursor_undraw();
         cursor.x++;
         vga_update_cursor(cursor.x, cursor.y);
+        if (fb_console_present()) fb_softcursor_draw();
     }
 }
 
 void vga_move_cursor_home(void) {
+    if (fb_console_present()) fb_softcursor_undraw();
     cursor.x = 0;
     cursor.y = 0;
     vga_update_cursor(cursor.x, cursor.y);
+    if (fb_console_present()) fb_softcursor_draw();
 }
 
 static void vga_put_uint(unsigned int val, unsigned int base, bool upper) {
