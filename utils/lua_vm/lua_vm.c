@@ -7,6 +7,7 @@
 #include <cldramfs/tty.h>
 #include <ps2.h>
 #include <shell_control.h>
+#include <pit/pit.h>
 
 #include <lua.h>
 
@@ -193,6 +194,26 @@ static int l_exit(lua_State *L) {
     return 0;
 }
 
+static int l_sleep(lua_State *L) {
+    int isnum = 0; long long ms = (long long)lua_tointegerx(L, 1, &isnum);
+    if (!isnum) {
+        if (lua_isstring(L, 1)) {
+            const char *s = lua_tostring(L, 1);
+            if (s) {
+                u64 acc = 0; int any = 0;
+                // simple decimal parse; ignore leading spaces and '+'
+                while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+                if (*s == '+') s++;
+                while (*s >= '0' && *s <= '9') { any = 1; acc = acc * 10 + (u64)(*s - '0'); s++; }
+                if (any) ms = (long long)acc; else ms = 0;
+            }
+        }
+    }
+    if (ms <= 0) return 0;
+    sleep_ms((u64)ms);
+    return 0;
+}
+
 static int l_write(lua_State *L) {
     size_t len = 0; const char *s = lua_tolstring(L, 1, &len);
     if (s && len) vga_printf("%s", s);
@@ -267,6 +288,7 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     lua_pushcfunction(L, l_writefile); lua_setglobal(L, "writefile");
     lua_pushcfunction(L, l_appendfile); lua_setglobal(L, "appendfile");
     lua_pushcfunction(L, l_exit); lua_setglobal(L, "exit");
+    lua_pushcfunction(L, l_sleep); lua_setglobal(L, "sleep");
     lua_pushcfunction(L, l_write); lua_setglobal(L, "write");
     lua_pushcfunction(L, l_cls); lua_setglobal(L, "cls");
     lua_pushcfunction(L, l_readtext); lua_setglobal(L, "readtext");

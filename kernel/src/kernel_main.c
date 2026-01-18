@@ -24,6 +24,7 @@
 #include <process.h>
 #include <deferred.h>
 #include <fb/fb_console.h>
+#include <pit/pit.h>
 
 // Shell integration globals
 static int shell_active = 0;
@@ -287,6 +288,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     ps2_init();
     ps2_mouse_init();
     
+    // Initialize PIT timer at 1000 Hz and enable IRQ0
+    pit_init(1000);
     pic_enable_irq(1);
     // Unmask cascade line and mouse on the slave PIC
     pic_enable_irq(2);
