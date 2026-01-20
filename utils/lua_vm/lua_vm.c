@@ -77,7 +77,7 @@ static int l_print(lua_State *L) {
         else if (lua_isnil(L, i)) vga_printf("nil");
         else vga_printf("<val>");
     }
-    vga_printf("\n");
+    // vga_printf("\n");
     return 0;
 }
 

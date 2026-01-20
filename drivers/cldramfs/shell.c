@@ -216,7 +216,8 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  echo [text] > file  - Write text to file\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
         vga_printf("  lua <script.lua>    - Run simple Lua-like script\n");
-        vga_printf("  startgui            - Start GUI (mouse; Esc to exit)\n");
+        vga_printf("  startgui            - Start GUI (Menu → Exit GUI)\n");
+        vga_printf("  snake               - Open Snake in GUI\n");
         vga_printf("  echo [text] >> file - Append text to file\n");
         vga_printf("  clear               - Clear screen\n");
         vga_printf("  exit                - Exit shell\n");
@@ -231,6 +232,16 @@ int cldramfs_shell_process_command(const char *command_line) {
         } else {
             // Start GUI terminal (shell remains active; output redirected)
             gui_start();
+        }
+    }
+    else if (strcmp(cmd, "snake") == 0) {
+        if (!fb_console_present()) {
+            vga_printf("GUI requires framebuffer mode.\n");
+        } else {
+            // Ensure GUI is started, then open snake window
+            extern void gui_open_snake(void);
+            gui_start();
+            gui_open_snake();
         }
     }
     else if (strcmp(cmd, "exit") == 0) {
