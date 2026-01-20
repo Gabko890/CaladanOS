@@ -9,13 +9,15 @@
 #include "cursor_bitmap.h"
 #include "bar.h"
 #include "wallpaper.h"
+#include "viewer.h"
 
 // Simple GUI state
 static int gui_active = 0;
 static int terminal_win_id = -1;
 static int editor_win_id = -1;
+static int viewer_win_id = -1;
 static int window_open = 0;
-typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2 } win_kind_t;
+typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2, WIN_VIEWER = 3 } win_kind_t;
 static win_kind_t cur_win = WIN_NONE;
 static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
@@ -90,6 +92,11 @@ static void gui_redraw_window_only(void) {
         gui_editor_render_all();
         gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
         gui_editor_draw_overlays();
+    } else if (cur_win == WIN_VIEWER) {
+        gui_viewer_move(ncx, ncy);
+        gui_viewer_render_all();
+        gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
+        gui_viewer_draw_overlays();
     }
 }
 
@@ -117,6 +124,10 @@ static void gui_rerender_full(void) {
             gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
             gui_editor_render_all();
             gui_editor_draw_overlays();
+        } else if (cur_win == WIN_VIEWER) {
+            gui_viewer_render_all();
+            gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
+            gui_viewer_draw_overlays();
         }
     }
     gui_bar_render();
@@ -186,12 +197,19 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             gui_redraw_window_only();
             gui_cursor_draw(cursor_x, cursor_y);
         }
+    } else if (cur_win == WIN_VIEWER) {
+        if (gui_viewer_on_move(cursor_x, cursor_y)) {
+            gui_cursor_undraw();
+            gui_redraw_window_only();
+            gui_cursor_draw(cursor_x, cursor_y);
+        }
     }
 
     int left_pressed = (buttons & 0x01) != 0;
     int left_was_pressed = (last_buttons & 0x01) != 0;
     int just_released = 0;
     int editor_click_consumed_local = 0;
+    int viewer_click_consumed_local = 0;
 
     // Handle bar clicks (menu/dropdown) only if clicking in bar area or when bar menu is open
     if (left_pressed && !left_was_pressed) {
@@ -271,22 +289,109 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             gui_editor_init(content_x, content_y, content_w, content_h);
             window_open = 1; cur_win = WIN_EDITOR;
             gui_rerender_full();
+        } else if (action == 4) {
+            // Open image viewer; close other window if present
+            if (window_open && cur_win == WIN_TERMINAL) {
+                gui_term_detach(); gui_term_free();
+                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            } else if (window_open && cur_win == WIN_EDITOR) {
+                gui_editor_free();
+                if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            }
+            // Create viewer window
+            win_w = scr_w / 2; win_h = scr_h / 2;
+            if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
+            if (win_h < 80)  win_h = (scr_h > 100) ? 100 : scr_h - 20;
+            win_x = (scr_w - win_w) / 2; win_y = GUI_BAR_HEIGHT + 10;
+            gui_draw_window();
+            viewer_win_id = gui_bar_register_window("Viewer");
+            gui_bar_set_active_window(viewer_win_id);
+            gui_bar_render();
+            u32 title_h2 = (win_h > 24) ? 24 : (win_h / 8);
+            u32 content_x2 = win_x + 6;
+            u32 content_y2 = win_y + 2 + title_h2 + 4;
+            u32 content_w2 = (win_w > 12) ? (win_w - 12) : 0;
+            u32 content_h2 = (win_h > title_h2 + 10) ? (win_h - title_h2 - 10) : 0;
+            gui_viewer_init(content_x2, content_y2, content_w2, content_h2);
+            window_open = 1; cur_win = WIN_VIEWER;
+            gui_rerender_full();
         } else if (action == 2 && clicked_window_id > 0) {
             // Focus a window tab: set active highlight. No Z-order change for now.
             if (clicked_window_id == terminal_win_id) { gui_bar_set_active_window(terminal_win_id); gui_bar_render(); }
             if (clicked_window_id == editor_win_id)   { gui_bar_set_active_window(editor_win_id);   gui_bar_render(); }
+            if (clicked_window_id == viewer_win_id)   { gui_bar_set_active_window(viewer_win_id);   gui_bar_render(); }
         }
-        // Forward click to editor window UI (File menu)
+        // Forward click to editor/viewer window UI (File/Open menu)
         if (cur_win == WIN_EDITOR) {
             gui_cursor_undraw();
             if (gui_editor_on_click(cursor_x, cursor_y)) { editor_click_consumed_local = 1; gui_rerender_full(); }
+            gui_cursor_draw(cursor_x, cursor_y);
+        } else if (cur_win == WIN_VIEWER) {
+            gui_cursor_undraw();
+            if (gui_viewer_on_click(cursor_x, cursor_y)) {
+                gui_rerender_full();
+                viewer_click_consumed_local = 1;
+                if (gui_viewer_consume_new_image_flag()) {
+                    u32 iw = 0, ih = 0; gui_viewer_get_image_dims(&iw, &ih);
+                    if (iw && ih) {
+                        u32 sw = 0, sh = 0; fb_get_resolution(&sw, &sh);
+                        u32 max_cw = 600, max_ch = 400; // viewer content max
+                        // Downscale to fit box 600x400, preserving aspect; never upscale
+                        u32 cw = iw, ch = ih;
+                        if (iw > max_cw || ih > max_ch) {
+                            // Compare iw/ih with max_cw/max_ch without division
+                            if ((u64)iw * (u64)max_ch > (u64)ih * (u64)max_cw) {
+                                // Width-bound
+                                cw = max_cw;
+                                ch = (u32)(((u64)ih * (u64)max_cw) / (u64)iw);
+                                if (ch == 0) ch = 1;
+                            } else {
+                                // Height-bound
+                                ch = max_ch;
+                                cw = (u32)(((u64)iw * (u64)max_ch) / (u64)ih);
+                                if (cw == 0) cw = 1;
+                            }
+                        }
+                        // Screen safety clamp while preserving aspect (rarely needed)
+                        u32 scr_max_w = (sw > 20) ? (sw - 20) : sw;
+                        u32 scr_max_h = (sh > GUI_BAR_HEIGHT + 44) ? (sh - GUI_BAR_HEIGHT - 44) : (sh > 10 ? sh - 10 : sh);
+                        if (cw > scr_max_w || ch > scr_max_h) {
+                            if ((u64)cw * (u64)scr_max_h > (u64)ch * (u64)scr_max_w) {
+                                u32 new_cw = scr_max_w;
+                                u32 new_ch = (u32)(((u64)ch * (u64)scr_max_w) / (u64)cw);
+                                cw = new_cw; ch = (new_ch ? new_ch : 1);
+                            } else {
+                                u32 new_ch = scr_max_h;
+                                u32 new_cw = (u32)(((u64)cw * (u64)scr_max_h) / (u64)ch);
+                                ch = new_ch; cw = (new_cw ? new_cw : 1);
+                            }
+                        }
+                        // Derive window size from content size
+                        u32 title_h2 = 24;
+                        win_w = cw + 12;
+                        win_h = ch + title_h2 + 10;
+                        win_x = (sw > win_w) ? ((sw - win_w) / 2) : 0;
+                        win_y = GUI_BAR_HEIGHT + 10;
+                        // Redraw with new geometry
+                        gui_draw_window();
+                        u32 content_x2 = win_x + 6;
+                        u32 content_y2 = win_y + 2 + title_h2 + 4;
+                        gui_viewer_resize(cw, ch);
+                        gui_viewer_move(content_x2, content_y2);
+                        gui_rerender_full();
+                    }
+                }
+            }
             gui_cursor_draw(cursor_x, cursor_y);
         }
     }
 
     // Start drag if left just pressed inside title bar (only when a window is open)
     if (window_open && !dragging && left_pressed && !left_was_pressed) {
-        if (cur_win == WIN_EDITOR && editor_click_consumed_local) {
+        if ((cur_win == WIN_EDITOR && editor_click_consumed_local) ||
+            (cur_win == WIN_VIEWER && viewer_click_consumed_local)) {
             last_buttons = buttons; return;
         }
         u32 tb_h = (win_h > 24) ? 24 : (win_h / 8);
@@ -306,6 +411,9 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             } else if (cur_win == WIN_EDITOR) {
                 gui_editor_free();
                 if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+            } else if (cur_win == WIN_VIEWER) {
+                gui_viewer_free();
+                if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
             }
             restore_bg_rect(win_x, win_y, win_w, win_h);
             gui_bar_render();
@@ -352,6 +460,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         u32 ncy = win_y + 2 + title_h + 4;
         if (cur_win == WIN_TERMINAL) gui_term_move(ncx, ncy);
         else if (cur_win == WIN_EDITOR) gui_editor_move(ncx, ncy);
+        else if (cur_win == WIN_VIEWER) gui_viewer_move(ncx, ncy);
         // Only redraw terminal content when drag stops to avoid heavy flicker
         if (just_released) {
             if (cur_win == WIN_TERMINAL) gui_term_render_all();
@@ -359,11 +468,18 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 gui_editor_render_all();
                 gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
                 gui_editor_draw_overlays();
+            } else if (cur_win == WIN_VIEWER) {
+                gui_viewer_render_all();
+                gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
+                gui_viewer_draw_overlays();
             }
         } else {
             if (cur_win == WIN_EDITOR) {
                 gui_editor_set_titlebar(win_x, win_y, win_w, title_h);
                 gui_editor_draw_overlays();
+            } else if (cur_win == WIN_VIEWER) {
+                gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
+                gui_viewer_draw_overlays();
             }
         }
         // Draw cursor at new position
@@ -378,6 +494,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (window_open && just_released && !window_moved) {
         if (cur_win == WIN_TERMINAL) gui_term_render_all();
         else if (cur_win == WIN_EDITOR) gui_editor_render_all();
+        else if (cur_win == WIN_VIEWER) gui_viewer_render_all();
     }
     // no other window redraw required
     // no secondary window
@@ -403,6 +520,50 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
             }
         } else if (cur_win == WIN_EDITOR) {
             gui_editor_handle_key(scancode, is_extended, is_pressed);
+        } else if (cur_win == WIN_VIEWER) {
+            gui_viewer_handle_key(scancode, is_extended, is_pressed);
+            if (gui_viewer_consume_new_image_flag()) {
+                u32 iw = 0, ih = 0; gui_viewer_get_image_dims(&iw, &ih);
+                if (iw && ih) {
+                    u32 sw = 0, sh = 0; fb_get_resolution(&sw, &sh);
+                    u32 max_cw = 600, max_ch = 400;
+                    u32 cw = iw, ch = ih;
+                    if (iw > max_cw || ih > max_ch) {
+                        if ((u64)iw * (u64)max_ch > (u64)ih * (u64)max_cw) {
+                            cw = max_cw;
+                            ch = (u32)(((u64)ih * (u64)max_cw) / (u64)iw);
+                            if (ch == 0) ch = 1;
+                        } else {
+                            ch = max_ch;
+                            cw = (u32)(((u64)iw * (u64)max_ch) / (u64)ih);
+                            if (cw == 0) cw = 1;
+                        }
+                    }
+                    // screen clamp preserving aspect
+                    u32 scr_max_w = (sw > 20) ? (sw - 20) : sw;
+                    u32 scr_max_h = (sh > GUI_BAR_HEIGHT + 44) ? (sh - GUI_BAR_HEIGHT - 44) : (sh > 10 ? sh - 10 : sh);
+                    if (cw > scr_max_w || ch > scr_max_h) {
+                        if ((u64)cw * (u64)scr_max_h > (u64)ch * (u64)scr_max_w) {
+                            u32 new_cw = scr_max_w; u32 new_ch = (u32)(((u64)ch * (u64)scr_max_w) / (u64)cw);
+                            cw = new_cw; ch = (new_ch ? new_ch : 1);
+                        } else {
+                            u32 new_ch = scr_max_h; u32 new_cw = (u32)(((u64)cw * (u64)scr_max_h) / (u64)ch);
+                            ch = new_ch; cw = (new_cw ? new_cw : 1);
+                        }
+                    }
+                    u32 title_h2 = 24;
+                    win_w = cw + 12;
+                    win_h = ch + title_h2 + 10;
+                    win_x = (sw > win_w) ? ((sw - win_w) / 2) : 0;
+                    win_y = GUI_BAR_HEIGHT + 10;
+                    gui_draw_window();
+                    u32 content_x2 = win_x + 6;
+                    u32 content_y2 = win_y + 2 + title_h2 + 4;
+                    gui_viewer_resize(cw, ch);
+                    gui_viewer_move(content_x2, content_y2);
+                    gui_rerender_full();
+                }
+            }
         }
     }
 }
@@ -490,7 +651,9 @@ static void gui_stop(void) {
     // Free active window backing store
     if (cur_win == WIN_TERMINAL) gui_term_free();
     else if (cur_win == WIN_EDITOR) gui_editor_free();
+    else if (cur_win == WIN_VIEWER) gui_viewer_free();
     // Unregister windows from bar
     if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
     if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+    if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
 }
