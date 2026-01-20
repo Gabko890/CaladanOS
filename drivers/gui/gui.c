@@ -4,20 +4,23 @@
 #include <vgaio.h>
 #include <shell_control.h>
 #include <kmalloc.h>
+#include "gui.h"
 #include "term.h"
 #include "editor.h"
 #include "cursor_bitmap.h"
 #include "bar.h"
 #include "wallpaper.h"
 #include "viewer.h"
+#include "snake.h"
 
 // Simple GUI state
 static int gui_active = 0;
 static int terminal_win_id = -1;
 static int editor_win_id = -1;
 static int viewer_win_id = -1;
+static int snake_win_id = -1;
 static int window_open = 0;
-typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2, WIN_VIEWER = 3 } win_kind_t;
+typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2, WIN_VIEWER = 3, WIN_SNAKE = 4 } win_kind_t;
 static win_kind_t cur_win = WIN_NONE;
 static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
@@ -32,7 +35,10 @@ static const u8 COL_BG[3]     = { 0x20, 0x20, 0x20 };
 static const u8 COL_WIN[3]    = { 0xCC, 0xCC, 0xCC };
 static const u8 COL_TITLE[3]  = { 0x60, 0x60, 0x64 }; // stylish gray
 static const u8 COL_BORDER[3] = { 0x00, 0x00, 0x00 };
-static const u8 COL_CURSOR[3] = { 0x00, 0x00, 0x00 };
+// static const u8 COL_CURSOR[3] = { 0x00, 0x00, 0x00 }; // unused
+
+// Forward declaration for local stop helper
+static void gui_stop(void);
 
 static void draw_rect_rgb(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
     fb_fill_rect_rgb(x, y, w, h, rgb[0], rgb[1], rgb[2]);
@@ -97,6 +103,9 @@ static void gui_redraw_window_only(void) {
         gui_viewer_render_all();
         gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
         gui_viewer_draw_overlays();
+    } else if (cur_win == WIN_SNAKE) {
+        gui_snake_move(ncx, ncy);
+        gui_snake_render_all();
     }
 }
 
@@ -128,6 +137,8 @@ static void gui_rerender_full(void) {
             gui_viewer_render_all();
             gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
             gui_viewer_draw_overlays();
+        } else if (cur_win == WIN_SNAKE) {
+            gui_snake_render_all();
         }
     }
     gui_bar_render();
@@ -147,7 +158,7 @@ static void gui_cursor_undraw(void) {
 static void gui_cursor_draw(u32 x, u32 y) {
     if (!cursor_save) return;
     // Save region under cursor, clamped to screen bounds
-    u32 w = CURSOR_W, h = CURSOR_H, sw = 0, sh = 0, scrw = 0, scrh = 0;
+    u32 w = CURSOR_W, h = CURSOR_H, scrw = 0, scrh = 0;
     fb_get_resolution(&scrw, &scrh);
     if (x + w > scrw) w = scrw - x;
     if (y + h > scrh) h = scrh - y;
@@ -167,7 +178,6 @@ static void gui_cursor_draw(u32 x, u32 y) {
 
 static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (!gui_active) return;
-    u32 old_cx = cursor_x, old_cy = cursor_y;
     u32 old_wx = win_x, old_wy = win_y;
 
     // Update cursor position with clamping
@@ -317,11 +327,48 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             gui_viewer_init(content_x2, content_y2, content_w2, content_h2);
             window_open = 1; cur_win = WIN_VIEWER;
             gui_rerender_full();
+        } else if (action == 5) {
+            // Open Snake; close other window if present
+            if (window_open && cur_win == WIN_TERMINAL) {
+                gui_term_detach(); gui_term_free();
+                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            } else if (window_open && cur_win == WIN_EDITOR) {
+                gui_editor_free();
+                if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            } else if (window_open && cur_win == WIN_VIEWER) {
+                gui_viewer_free();
+                if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            }
+            // Create snake window
+            win_w = scr_w / 2; win_h = scr_h / 2;
+            if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
+            if (win_h < 80)  win_h = (scr_h > 100) ? 100 : scr_h - 20;
+            win_x = (scr_w - win_w) / 2; win_y = GUI_BAR_HEIGHT + 10;
+            gui_draw_window();
+            snake_win_id = gui_bar_register_window("Snake");
+            gui_bar_set_active_window(snake_win_id);
+            gui_bar_render();
+            u32 title_h3 = (win_h > 24) ? 24 : (win_h / 8);
+            u32 content_x3 = win_x + 6;
+            u32 content_y3 = win_y + 2 + title_h3 + 4;
+            u32 content_w3 = (win_w > 12) ? (win_w - 12) : 0;
+            u32 content_h3 = (win_h > title_h3 + 10) ? (win_h - title_h3 - 10) : 0;
+            gui_snake_init(content_x3, content_y3, content_w3, content_h3);
+            window_open = 1; cur_win = WIN_SNAKE;
+            gui_rerender_full();
+        } else if (action == 6) {
+            // Exit GUI via menu
+            gui_stop();
+            return; // stop processing further
         } else if (action == 2 && clicked_window_id > 0) {
             // Focus a window tab: set active highlight. No Z-order change for now.
             if (clicked_window_id == terminal_win_id) { gui_bar_set_active_window(terminal_win_id); gui_bar_render(); }
             if (clicked_window_id == editor_win_id)   { gui_bar_set_active_window(editor_win_id);   gui_bar_render(); }
             if (clicked_window_id == viewer_win_id)   { gui_bar_set_active_window(viewer_win_id);   gui_bar_render(); }
+            if (clicked_window_id == snake_win_id)    { gui_bar_set_active_window(snake_win_id);    gui_bar_render(); }
         }
         // Forward click to editor/viewer window UI (File/Open menu)
         if (cur_win == WIN_EDITOR) {
@@ -414,6 +461,9 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             } else if (cur_win == WIN_VIEWER) {
                 gui_viewer_free();
                 if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
+            } else if (cur_win == WIN_SNAKE) {
+                gui_snake_free();
+                if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
             }
             restore_bg_rect(win_x, win_y, win_w, win_h);
             gui_bar_render();
@@ -438,7 +488,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         int new_wx = (int)cursor_x - (int)drag_off_x;
         int new_wy = (int)cursor_y - (int)drag_off_y;
         // Dragging terminal
-        if (new_wx < 0) new_wx = 0; if (new_wy < 0) new_wy = 0;
+        if (new_wx < 0) new_wx = 0;
+        if (new_wy < 0) new_wy = 0;
         if (new_wx > (int)(scr_w - win_w)) new_wx = (int)(scr_w - win_w);
         // Prevent overlapping the top bar
         int min_y = (int)GUI_BAR_HEIGHT + 2; // keep a small gap for window border
@@ -461,6 +512,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         if (cur_win == WIN_TERMINAL) gui_term_move(ncx, ncy);
         else if (cur_win == WIN_EDITOR) gui_editor_move(ncx, ncy);
         else if (cur_win == WIN_VIEWER) gui_viewer_move(ncx, ncy);
+        else if (cur_win == WIN_SNAKE) gui_snake_move(ncx, ncy);
         // Only redraw terminal content when drag stops to avoid heavy flicker
         if (just_released) {
             if (cur_win == WIN_TERMINAL) gui_term_render_all();
@@ -472,6 +524,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 gui_viewer_render_all();
                 gui_viewer_set_titlebar(win_x, win_y, win_w, title_h);
                 gui_viewer_draw_overlays();
+            } else if (cur_win == WIN_SNAKE) {
+                gui_snake_render_all();
             }
         } else {
             if (cur_win == WIN_EDITOR) {
@@ -495,6 +549,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         if (cur_win == WIN_TERMINAL) gui_term_render_all();
         else if (cur_win == WIN_EDITOR) gui_editor_render_all();
         else if (cur_win == WIN_VIEWER) gui_viewer_render_all();
+        else if (cur_win == WIN_SNAKE) gui_snake_render_all();
     }
     // no other window redraw required
     // no secondary window
@@ -502,14 +557,49 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     last_buttons = buttons;
 }
 
-static void gui_stop(void);
+void gui_open_snake(void) {
+    if (!fb_console_present()) return;
+    // Close any existing window
+    if (window_open) {
+        if (cur_win == WIN_TERMINAL) {
+            gui_term_detach(); gui_term_free();
+            if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+        } else if (cur_win == WIN_EDITOR) {
+            gui_editor_free();
+            if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+        } else if (cur_win == WIN_VIEWER) {
+            gui_viewer_free();
+            if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
+        } else if (cur_win == WIN_SNAKE) {
+            gui_snake_free();
+            if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
+        }
+        window_open = 0; cur_win = WIN_NONE;
+    }
+    // Create snake window centered
+    fb_get_resolution(&scr_w, &scr_h);
+    win_w = scr_w / 2; win_h = scr_h / 2;
+    if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
+    if (win_h < 80)  win_h = (scr_h > 100) ? 100 : scr_h - 20;
+    win_x = (scr_w - win_w) / 2; win_y = GUI_BAR_HEIGHT + 10;
+    gui_draw_window();
+    if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
+    snake_win_id = gui_bar_register_window("Snake");
+    gui_bar_set_active_window(snake_win_id);
+    gui_bar_render();
+    u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
+    u32 cx = win_x + 6;
+    u32 cy = win_y + 2 + title_h + 4;
+    u32 cw = (win_w > 12) ? (win_w - 12) : 0;
+    u32 ch = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
+    gui_snake_init(cx, cy, cw, ch);
+    window_open = 1; cur_win = WIN_SNAKE;
+    gui_rerender_full();
+}
 
 static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
     (void)is_extended;
     if (!gui_active) return;
-    if (is_pressed && scancode == US_ESC) {
-        gui_stop();
-    }
     // Forward keys depending on active window
     if (window_open && is_pressed) {
         if (cur_win == WIN_TERMINAL) {
@@ -564,6 +654,8 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
                     gui_rerender_full();
                 }
             }
+        } else if (cur_win == WIN_SNAKE) {
+            gui_snake_handle_key(scancode, is_extended, is_pressed);
         }
     }
 }
@@ -576,13 +668,12 @@ void gui_start(void) {
     fb_get_resolution(&scr_w, &scr_h);
     if (scr_w == 0 || scr_h == 0) return;
 
-    // Configure a basic window roughly centered
-    win_w = scr_w / 2;
-    win_h = scr_h / 2;
-    if (win_w < 100) win_w = (scr_w > 120) ? 120 : scr_w - 20;
-    if (win_h < 80)  win_h = (scr_h > 100) ? 100 : scr_h - 20;
-    win_x = (scr_w - win_w) / 2;
-    win_y = (scr_h - win_h) / 3;
+    // Pause shell I/O so it doesn't draw over the GUI background
+    shell_pause();
+
+    // No window opened by default; just draw wallpaper and the top bar.
+    win_w = win_h = 0;
+    win_x = win_y = 0;
 
     // Initial cursor position in center
     cursor_x = scr_w / 2;
@@ -596,27 +687,17 @@ void gui_start(void) {
     cursor_save = (u8*)kmalloc(CURSOR_W * CURSOR_H * fb_bpp);
     if (!cursor_save) return;
 
+    // Clear any existing text framebuffer content first
+    vga_clear_screen();
+
     // Try to load wallpaper from ramfs and clear background
     if (!gui_wallpaper_load("/wallpapers/default.bmp")) {
         // Fallback to legacy filename if default is missing
         (void)gui_wallpaper_load("/wallpapers/cldwallapper.bmp");
     }
     gui_clear_all();
-    gui_draw_window();
     // Initialize and draw top bar
     gui_bar_init();
-    gui_bar_render();
-    // Terminal area: inside window, below title bar with margins
-    u32 title_h = (win_h > 24) ? 24 : (win_h / 8);
-    u32 content_x = win_x + 6;
-    u32 content_y = win_y + 2 + title_h + 4;
-    u32 content_w = (win_w > 12) ? (win_w - 12) : 0;
-    u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
-    gui_term_init(content_x, content_y, content_w, content_h);
-    gui_term_attach();
-    // Register window with bar and set active
-    terminal_win_id = gui_bar_register_window("Terminal");
-    gui_bar_set_active_window(terminal_win_id);
     gui_bar_render();
     gui_cursor_draw(cursor_x, cursor_y);
 
@@ -624,8 +705,8 @@ void gui_start(void) {
     ps2_mouse_set_callback(gui_mouse_cb);
     ps2_set_key_callback(gui_key_handler);
     gui_active = 1;
-    window_open = 1;
-    cur_win = WIN_TERMINAL;
+    window_open = 0;
+    cur_win = WIN_NONE;
 }
 
 static void gui_stop(void) {
@@ -652,8 +733,10 @@ static void gui_stop(void) {
     if (cur_win == WIN_TERMINAL) gui_term_free();
     else if (cur_win == WIN_EDITOR) gui_editor_free();
     else if (cur_win == WIN_VIEWER) gui_viewer_free();
+    else if (cur_win == WIN_SNAKE) gui_snake_free();
     // Unregister windows from bar
     if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
     if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
     if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
+    if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
 }

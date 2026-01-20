@@ -9,7 +9,8 @@
 void gui_bar_init(void);
 void gui_bar_render(void);
 // Handle a mouse click at pixel (x,y). Returns action code:
-// 0 = none, 1 = open new terminal, 2 = focus window id, 3 = open new editor
+// 0 = none, 1 = open terminal, 2 = focus window id,
+// 3 = open editor, 4 = open image viewer, 5 = open snake, 6 = exit GUI
 int gui_bar_on_click(u32 x, u32 y, int* out_window_id);
 // Handle mouse movement/hover; closes menu if cursor leaves menu/dropdown.
 // Returns 1 if state changed (e.g., menu closed), else 0.

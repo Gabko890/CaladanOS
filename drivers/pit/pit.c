@@ -9,9 +9,13 @@
 
 static volatile u64 g_ticks = 0;
 static u32 g_hz = 0;
+static pit_tick_cb_t g_cb = 0;
 
 void handle_pit(void) {
     g_ticks++;
+    if (g_cb) {
+        g_cb();
+    }
     pic_send_eoi(0);
 }
 
@@ -34,6 +38,14 @@ void pit_init(u32 hz) {
 
 u64 pit_ticks(void) {
     return g_ticks;
+}
+
+u32 pit_get_hz(void) {
+    return g_hz;
+}
+
+void pit_set_callback(pit_tick_cb_t cb) {
+    g_cb = cb;
 }
 
 void sleep_ms(u64 ms) {
