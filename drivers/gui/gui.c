@@ -12,6 +12,7 @@
 #include "wallpaper.h"
 #include "viewer.h"
 #include "snake.h"
+#include "calc.h"
 
 // Simple GUI state
 static int gui_active = 0;
@@ -19,8 +20,9 @@ static int terminal_win_id = -1;
 static int editor_win_id = -1;
 static int viewer_win_id = -1;
 static int snake_win_id = -1;
+static int calc_win_id = -1;
 static int window_open = 0;
-typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2, WIN_VIEWER = 3, WIN_SNAKE = 4 } win_kind_t;
+typedef enum { WIN_NONE = 0, WIN_TERMINAL = 1, WIN_EDITOR = 2, WIN_VIEWER = 3, WIN_SNAKE = 4, WIN_CALC = 5 } win_kind_t;
 static win_kind_t cur_win = WIN_NONE;
 static u32 scr_w = 0, scr_h = 0;
 static u32 win_x = 0, win_y = 0, win_w = 0, win_h = 0;
@@ -106,6 +108,9 @@ static void gui_redraw_window_only(void) {
     } else if (cur_win == WIN_SNAKE) {
         gui_snake_move(ncx, ncy);
         gui_snake_render_all();
+    } else if (cur_win == WIN_CALC) {
+        gui_calc_move(ncx, ncy);
+        gui_calc_render_all();
     }
 }
 
@@ -139,6 +144,8 @@ static void gui_rerender_full(void) {
             gui_viewer_draw_overlays();
         } else if (cur_win == WIN_SNAKE) {
             gui_snake_render_all();
+        } else if (cur_win == WIN_CALC) {
+            gui_calc_render_all();
         }
     }
     gui_bar_render();
@@ -360,6 +367,42 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             window_open = 1; cur_win = WIN_SNAKE;
             gui_rerender_full();
         } else if (action == 6) {
+            // Open Calculator; close other window if present
+            if (window_open && cur_win == WIN_TERMINAL) {
+                gui_term_detach(); gui_term_free();
+                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            } else if (window_open && cur_win == WIN_EDITOR) {
+                gui_editor_free();
+                if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            } else if (window_open && cur_win == WIN_VIEWER) {
+                gui_viewer_free();
+                if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            } else if (window_open && cur_win == WIN_SNAKE) {
+                gui_snake_free();
+                if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
+                window_open = 0; cur_win = WIN_NONE;
+            }
+            // Create calculator window (narrower by default)
+            u32 desired_w = 220, desired_h = 240;
+            win_w = (scr_w > desired_w + 20) ? desired_w : (scr_w > 20 ? scr_w - 20 : scr_w);
+            win_h = (scr_h > desired_h + 20) ? desired_h : (scr_h > 20 ? scr_h - 20 : scr_h);
+            win_x = (scr_w - win_w) / 2; win_y = GUI_BAR_HEIGHT + 10;
+            gui_draw_window();
+            calc_win_id = gui_bar_register_window("Calculator");
+            gui_bar_set_active_window(calc_win_id);
+            gui_bar_render();
+            u32 title_h4 = (win_h > 24) ? 24 : (win_h / 8);
+            u32 content_x4 = win_x + 6;
+            u32 content_y4 = win_y + 2 + title_h4 + 4;
+            u32 content_w4 = (win_w > 12) ? (win_w - 12) : 0;
+            u32 content_h4 = (win_h > title_h4 + 10) ? (win_h - title_h4 - 10) : 0;
+            gui_calc_init(content_x4, content_y4, content_w4, content_h4);
+            window_open = 1; cur_win = WIN_CALC;
+            gui_rerender_full();
+        } else if (action == 7) {
             // Exit GUI via menu
             gui_stop();
             return; // stop processing further
@@ -369,6 +412,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             if (clicked_window_id == editor_win_id)   { gui_bar_set_active_window(editor_win_id);   gui_bar_render(); }
             if (clicked_window_id == viewer_win_id)   { gui_bar_set_active_window(viewer_win_id);   gui_bar_render(); }
             if (clicked_window_id == snake_win_id)    { gui_bar_set_active_window(snake_win_id);    gui_bar_render(); }
+            if (clicked_window_id == calc_win_id)     { gui_bar_set_active_window(calc_win_id);     gui_bar_render(); }
         }
         // Forward click to editor/viewer window UI (File/Open menu)
         if (cur_win == WIN_EDITOR) {
@@ -432,6 +476,10 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 }
             }
             gui_cursor_draw(cursor_x, cursor_y);
+        } else if (cur_win == WIN_CALC) {
+            gui_cursor_undraw();
+            if (gui_calc_on_click(cursor_x, cursor_y)) { gui_rerender_full(); }
+            gui_cursor_draw(cursor_x, cursor_y);
         }
     }
 
@@ -464,6 +512,9 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             } else if (cur_win == WIN_SNAKE) {
                 gui_snake_free();
                 if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
+            } else if (cur_win == WIN_CALC) {
+                gui_calc_free();
+                if (calc_win_id > 0) { gui_bar_unregister_window(calc_win_id); calc_win_id = -1; }
             }
             restore_bg_rect(win_x, win_y, win_w, win_h);
             gui_bar_render();
@@ -513,6 +564,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         else if (cur_win == WIN_EDITOR) gui_editor_move(ncx, ncy);
         else if (cur_win == WIN_VIEWER) gui_viewer_move(ncx, ncy);
         else if (cur_win == WIN_SNAKE) gui_snake_move(ncx, ncy);
+        else if (cur_win == WIN_CALC) gui_calc_move(ncx, ncy);
         // Only redraw terminal content when drag stops to avoid heavy flicker
         if (just_released) {
             if (cur_win == WIN_TERMINAL) gui_term_render_all();
@@ -526,6 +578,8 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 gui_viewer_draw_overlays();
             } else if (cur_win == WIN_SNAKE) {
                 gui_snake_render_all();
+            } else if (cur_win == WIN_CALC) {
+                gui_calc_render_all();
             }
         } else {
             if (cur_win == WIN_EDITOR) {
@@ -550,6 +604,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         else if (cur_win == WIN_EDITOR) gui_editor_render_all();
         else if (cur_win == WIN_VIEWER) gui_viewer_render_all();
         else if (cur_win == WIN_SNAKE) gui_snake_render_all();
+        else if (cur_win == WIN_CALC) gui_calc_render_all();
     }
     // no other window redraw required
     // no secondary window
@@ -656,6 +711,8 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
             }
         } else if (cur_win == WIN_SNAKE) {
             gui_snake_handle_key(scancode, is_extended, is_pressed);
+        } else if (cur_win == WIN_CALC) {
+            gui_calc_handle_key(scancode, is_extended, is_pressed);
         }
     }
 }
@@ -734,9 +791,11 @@ static void gui_stop(void) {
     else if (cur_win == WIN_EDITOR) gui_editor_free();
     else if (cur_win == WIN_VIEWER) gui_viewer_free();
     else if (cur_win == WIN_SNAKE) gui_snake_free();
+    else if (cur_win == WIN_CALC) gui_calc_free();
     // Unregister windows from bar
     if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
     if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
     if (viewer_win_id > 0) { gui_bar_unregister_window(viewer_win_id); viewer_win_id = -1; }
     if (snake_win_id > 0) { gui_bar_unregister_window(snake_win_id); snake_win_id = -1; }
+    if (calc_win_id > 0) { gui_bar_unregister_window(calc_win_id); calc_win_id = -1; }
 }
