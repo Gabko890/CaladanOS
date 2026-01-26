@@ -153,7 +153,7 @@ Node* cldramfs_resolve_path_dir(const char *path, int create_missing) {
 }
 
 Node* cldramfs_resolve_path_file(const char *path, int create_dirs) {
-    if (!path) return NULL;
+    if (!path || !*path) return NULL;
     
     u32 path_len = strlen(path);
     char *temp = (char*)kmalloc(path_len + 1);
@@ -166,20 +166,24 @@ Node* cldramfs_resolve_path_file(const char *path, int create_dirs) {
     
     if (last_slash) {
         *last_slash = '\0';
-        dir = cldramfs_resolve_path_dir(temp, create_dirs);
         fname = last_slash + 1;
+        if (temp[0] == '\0' && path[0] == '/') {
+            dir = ramfs_root;
+        } else {
+            dir = cldramfs_resolve_path_dir(temp, create_dirs);
+        }
     } else {
         dir = ramfs_cwd;
         fname = temp;
     }
     
-    if (!dir) {
+    if (!dir || !fname || !*fname) {
         kfree(temp);
         return NULL;
     }
     
     Node *file = cldramfs_find_child(dir, fname);
-    if (!file) {
+    if (!file && create_dirs) {
         file = cldramfs_create_node(fname, FILE_NODE, dir);
         if (file) {
             cldramfs_add_child(dir, file);
@@ -316,8 +320,13 @@ void cldramfs_cmd_cat(const char *arg) {
     if (!arg) return;
     
     Node *file = cldramfs_resolve_path_file(arg, 0);
-    if (!file || file->type != FILE_NODE) {
-        vga_printf("File not found\n");
+    if (!file) {
+        vga_printf("cat: %s: No such file or directory\n", arg);
+        return;
+    }
+    
+    if (file->type != FILE_NODE) {
+        vga_printf("cat: %s: Is a directory\n", arg);
         return;
     }
     

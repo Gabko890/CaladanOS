@@ -63,6 +63,16 @@ CLDTEST_WITH_SUITE("CldRamfs directory operations", cldramfs_directory_operation
     resolved = cldramfs_resolve_path_file("/dir1/file1.txt", 0);
     assert(resolved == file1);
     
+    resolved = cldramfs_resolve_path_file("/dir1/missing.txt", 0);
+    assert(resolved == NULL);
+    assert(cldramfs_find_child(dir1, "missing.txt") == NULL);
+    
+    // Absolute file paths should resolve from root, not cwd
+    ramfs_cwd = dir1;
+    cldramfs_cmd_touch("/root_only.txt");
+    assert(cldramfs_find_child(ramfs_root, "root_only.txt") != NULL);
+    assert(cldramfs_find_child(dir1, "root_only.txt") == NULL);
+    
     // Cleanup
     cldramfs_free_node(ramfs_root);
 }
@@ -112,6 +122,9 @@ CLDTEST_WITH_SUITE("CldRamfs command parsing", cldramfs_command_parsing, cldramf
     Node *newfile = cldramfs_find_child(ramfs_root, "newfile.txt");
     assert(newfile != NULL);
     assert(newfile->type == FILE_NODE);
+    
+    cldramfs_cmd_cat("missing.txt");
+    assert(cldramfs_find_child(ramfs_root, "missing.txt") == NULL);
     
     // Cleanup
     cldramfs_free_node(ramfs_root);
