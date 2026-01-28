@@ -9,6 +9,7 @@
 #include <deferred.h>
 #include <lua_vm.h>
 #include <kmalloc.h>
+#include <sysinfo.h>
 
 // External TTY functions
 extern void tty_global_init(void);
@@ -216,6 +217,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  echo [text] > file  - Write text to file\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
         vga_printf("  lua <script.lua>    - Run simple Lua-like script\n");
+        vga_printf("  sysinfo             - Show kernel build information\n");
         vga_printf("  startgui            - Start GUI (Menu → Exit GUI)\n");
         vga_printf("  snake               - Open Snake in GUI\n");
         vga_printf("  echo [text] >> file - Append text to file\n");
@@ -225,6 +227,13 @@ int cldramfs_shell_process_command(const char *command_line) {
     else if (strcmp(cmd, "clear") == 0) {
         // Clear screen using ANSI escape sequences
         vga_printf("\x1b[2J\x1b[H");
+    }
+    else if (strcmp(cmd, "sysinfo") == 0) {
+        vga_printf("Kernel version: %s\n", sysinfo.kernel_version);
+        vga_printf("Build label:    %s\n", sysinfo.build_label);
+        vga_printf("Git branch:     %s\n", sysinfo.git_branch);
+        vga_printf("Git commit:     %s\n", sysinfo.git_commit);
+        vga_printf("Build datetime: %s\n", sysinfo.build_datetime);
     }
     else if (strcmp(cmd, "startgui") == 0) {
         if (!fb_console_present()) {

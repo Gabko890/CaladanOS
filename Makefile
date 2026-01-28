@@ -47,6 +47,7 @@ DRIVERS_INC_DIR := drivers
 TESTS_SRC_DIR  := tests
 BUILD_DIR      := build
 ISO_DIR        := $(BUILD_DIR)/iso
+SYSINFO_HEADER := $(BUILD_DIR)/generated/sysinfo_values.h
 CONF_DIR       := config
 LINKER_SCRIPT  := targets/x86_64.ld
 RAMFS_DIR      := ramfs
@@ -99,10 +100,19 @@ ALL_OBJECTS    := $(CORE_OBJECTS) $(TESTS_ASM_OBJECTS) $(TESTS_C_OBJECTS) $(CLDT
 OBJECTS        := $(CORE_OBJECTS)
 
 CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
-                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) $(UTILS_INCLUDES) \
+                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(BUILD_DIR)/generated $(UTILS_INCLUDES) \
                   -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic $(EXTERNAL_INCLUDES) \
                   -DMSPACES -DONLY_MSPACES -DUSE_DL_PREFIX
 CFLAGS_WITH_TESTS := $(CFLAGS) -DCLDTEST_ENABLED
+
+define PROMPT_BUILD_LABEL
+label="$(BUILD_LABEL)"; \
+if [ -z "$$label" ]; then \
+	printf "Build label [build]: "; \
+	read label || label=""; \
+	if [ -z "$$label" ]; then label="build"; fi; \
+fi
+endef
 
 ifeq ($(QEMU_ISA_DEBUGCON), true)
     CFLAGS += -DQEMU_ISA_DEBUGCON
@@ -129,6 +139,38 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.asm
 	@$(ASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+ifdef ENABLE_TESTS
+	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
+else
+	@$(CC) $(CFLAGS) -c $< -o $@
+endif
+
+$(SYSINFO_HEADER): version.txt FORCE
+	@mkdir -p $(dir $@)
+	@label="$(BUILD_LABEL)"; \
+	if [ -z "$$label" ]; then label="build"; fi; \
+	branch="$(SYSINFO_GIT_BRANCH)"; \
+	commit="$(SYSINFO_GIT_COMMIT)"; \
+	git_dir=$$(pwd); \
+	if [ -z "$$branch" ]; then branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); fi; \
+	if [ -z "$$commit" ]; then commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); fi; \
+	build_datetime=$$(date -u "+%Y-%m-%dT%H:%M:%SZ"); \
+	version=$$(if [ -f version.txt ]; then head -n 1 version.txt; else printf "0.0"; fi); \
+	escape_c_string() { printf "%s" "$$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }; \
+	{ \
+		printf "#ifndef SYSINFO_VALUES_H\n"; \
+		printf "#define SYSINFO_VALUES_H\n\n"; \
+		printf "#define SYSINFO_GIT_BRANCH \"%s\"\n" "$$(escape_c_string "$$branch")"; \
+		printf "#define SYSINFO_GIT_COMMIT \"%s\"\n" "$$(escape_c_string "$$commit")"; \
+		printf "#define SYSINFO_BUILD_DATETIME \"%s\"\n" "$$(escape_c_string "$$build_datetime")"; \
+		printf "#define SYSINFO_BUILD_LABEL \"%s\"\n" "$$(escape_c_string "$$label")"; \
+		printf "#define SYSINFO_KERNEL_VERSION \"%s\"\n\n" "$$(escape_c_string "$$version")"; \
+		printf "#endif\n"; \
+	} > $@
+
+$(BUILD_DIR)/kernel/sysinfo.o: $(KERNEL_SRC_DIR)/sysinfo.c $(SYSINFO_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
 ifdef ENABLE_TESTS
@@ -198,10 +240,12 @@ else
 endif
 
 build-x86_64:
-	@$(MAKE) build-x86_64-internal
+	@$(PROMPT_BUILD_LABEL); \
+	$(MAKE) BUILD_LABEL="$$label" build-x86_64-internal
 
 build-x86_64-test:
-	@$(MAKE) ENABLE_TESTS=1 OBJECTS="$(ALL_OBJECTS)" build-x86_64-internal
+	@$(PROMPT_BUILD_LABEL); \
+	$(MAKE) BUILD_LABEL="$$label" ENABLE_TESTS=1 OBJECTS="$(ALL_OBJECTS)" build-x86_64-internal
 
 build-x86_64-internal: $(OBJECTS)
 	@mkdir -p $(BUILD_DIR)/kernel
@@ -239,11 +283,19 @@ endif
 
 build:
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) kernel using Docker..."
-	@docker run --rm -v "$$PWD":/root/env cld-kernel-env make build-x86_64
+	@$(PROMPT_BUILD_LABEL); \
+	git_dir=$$(pwd); \
+	git_branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); \
+	git_commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); \
+	docker run --rm -e BUILD_LABEL="$$label" -e SYSINFO_GIT_BRANCH="$$git_branch" -e SYSINFO_GIT_COMMIT="$$git_commit" -v "$$PWD":/root/env cld-kernel-env make BUILD_LABEL="$$label" build-x86_64
 
 test:
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) kernel with tests using Docker..."
-	@docker run --rm -v "$$PWD":/root/env cld-kernel-env make build-x86_64-test
+	@$(PROMPT_BUILD_LABEL); \
+	git_dir=$$(pwd); \
+	git_branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); \
+	git_commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); \
+	docker run --rm -e BUILD_LABEL="$$label" -e SYSINFO_GIT_BRANCH="$$git_branch" -e SYSINFO_GIT_COMMIT="$$git_commit" -v "$$PWD":/root/env cld-kernel-env make BUILD_LABEL="$$label" build-x86_64-test
 
 build-docker:
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) Docker image..."
@@ -259,5 +311,7 @@ endif
 
 clean:
 	rm -rf $(BUILD_DIR)/*
+
+FORCE:
 
 endif
