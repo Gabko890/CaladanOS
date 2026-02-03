@@ -19,6 +19,15 @@ extern void tty_global_reset_line(void);
 
 static int shell_running = 0;
 
+typedef struct {
+    char *data;
+    u32 len;
+    u32 cap;
+    int failed;
+} shell_redirect_capture_t;
+
+static shell_redirect_capture_t redirect_capture = {0};
+
 void cldramfs_shell_init(void) {
     // Note: ramfs should already be initialized by now
     tty_global_init();
@@ -49,6 +58,109 @@ static char* find_arg(char *str) {
     
     // Skip whitespace to find argument
     return skip_whitespace(str);
+}
+
+static void trim_trailing_whitespace(char *str) {
+    u32 len = strlen(str);
+    while (len > 0 && (str[len - 1] == ' ' || str[len - 1] == '\t' || str[len - 1] == '\n')) {
+        str[--len] = '\0';
+    }
+}
+
+static int shell_parse_redirection(char *cmd, char **filename, int *append) {
+    *filename = NULL;
+    *append = 0;
+
+    char *redir = strchr(cmd, '>');
+    if (!redir) return 0;
+
+    if (redir[1] == '>') {
+        *append = 1;
+        *redir = '\0';
+        *filename = redir + 2;
+    } else {
+        *redir = '\0';
+        *filename = redir + 1;
+    }
+
+    trim_trailing_whitespace(cmd);
+    *filename = skip_whitespace(*filename);
+    trim_trailing_whitespace(*filename);
+
+    return 1;
+}
+
+static void shell_redirect_putchar(char c) {
+    if (redirect_capture.failed) return;
+
+    if (redirect_capture.len + 1 >= redirect_capture.cap) {
+        u32 new_cap = redirect_capture.cap ? redirect_capture.cap * 2 : 256;
+        char *new_data = (char*)kmalloc(new_cap);
+        if (!new_data) {
+            redirect_capture.failed = 1;
+            return;
+        }
+        if (redirect_capture.data) {
+            memcpy(new_data, redirect_capture.data, redirect_capture.len);
+            kfree(redirect_capture.data);
+        }
+        redirect_capture.data = new_data;
+        redirect_capture.cap = new_cap;
+    }
+
+    redirect_capture.data[redirect_capture.len++] = c;
+    redirect_capture.data[redirect_capture.len] = '\0';
+}
+
+static void shell_redirect_begin(void) {
+    redirect_capture.data = NULL;
+    redirect_capture.len = 0;
+    redirect_capture.cap = 0;
+    redirect_capture.failed = 0;
+}
+
+static void shell_redirect_end(void) {
+    if (redirect_capture.data) {
+        kfree(redirect_capture.data);
+    }
+    redirect_capture.data = NULL;
+    redirect_capture.len = 0;
+    redirect_capture.cap = 0;
+    redirect_capture.failed = 0;
+}
+
+static int shell_write_redirect_file(const char *filename, const char *data, u32 size, int append) {
+    Node *file = cldramfs_resolve_path_file(filename, 1);
+    if (!file) {
+        vga_printf("shell: cannot create '%s'\n", filename);
+        return -1;
+    }
+    if (file->type != FILE_NODE) {
+        vga_printf("shell: %s: Is a directory\n", filename);
+        return -1;
+    }
+
+    u32 old_size = (append && file->content) ? file->content_size : 0;
+    char *new_content = (char*)kmalloc(old_size + size + 1);
+    if (!new_content) {
+        vga_printf("shell: cannot write '%s': out of memory\n", filename);
+        return -1;
+    }
+
+    if (old_size > 0) {
+        memcpy(new_content, file->content, old_size);
+    }
+    if (size > 0 && data) {
+        memcpy(new_content + old_size, data, size);
+    }
+    new_content[old_size + size] = '\0';
+
+    if (file->content) {
+        kfree(file->content);
+    }
+    file->content = new_content;
+    file->content_size = old_size + size;
+    return 0;
 }
 
 static void parse_two_args(const char *cmd, char *arg1, char *arg2) {
@@ -88,6 +200,39 @@ int cldramfs_shell_process_command(const char *command_line) {
     if (len == 0) return 0;
     
     char *cmd = skip_whitespace(line);
+    char *redirect_filename = NULL;
+    int redirect_append = 0;
+
+    if (shell_parse_redirection(cmd, &redirect_filename, &redirect_append)) {
+        cmd = skip_whitespace(cmd);
+        if (!redirect_filename || !*redirect_filename) {
+            vga_printf("shell: syntax error: missing redirection target\n");
+            return 0;
+        }
+        if (!*cmd) {
+            shell_write_redirect_file(redirect_filename, "", 0, redirect_append);
+            return 0;
+        }
+
+        shell_redirect_begin();
+        if (vga_push_putchar_sink(shell_redirect_putchar, 1) != 0) {
+            shell_redirect_end();
+            vga_printf("shell: cannot redirect output\n");
+            return 0;
+        }
+
+        int result = cldramfs_shell_process_command(cmd);
+        vga_pop_putchar_sink();
+
+        if (redirect_capture.failed) {
+            vga_printf("shell: redirect output truncated: out of memory\n");
+        } else {
+            shell_write_redirect_file(redirect_filename, redirect_capture.data, redirect_capture.len, redirect_append);
+        }
+
+        shell_redirect_end();
+        return result;
+    }
     
     if (strncmp(cmd, "ls", 2) == 0 && (cmd[2] == '\0' || cmd[2] == ' ')) {
         char *arg = find_arg(cmd);
@@ -214,13 +359,13 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  cp <src> <dst>      - Copy file\n");
         vga_printf("  mv <src> <dst>      - Move/rename file\n");
         vga_printf("  echo [text]         - Print text to stdout\n");
-        vga_printf("  echo [text] > file  - Write text to file\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
         vga_printf("  lua <script.lua>    - Run simple Lua-like script\n");
         vga_printf("  sysinfo             - Show kernel build information\n");
         vga_printf("  startgui            - Start GUI (Menu → Exit GUI)\n");
         vga_printf("  snake               - Open Snake in GUI\n");
-        vga_printf("  echo [text] >> file - Append text to file\n");
+        vga_printf("  cmd > file          - Redirect command output to file\n");
+        vga_printf("  cmd >> file         - Append command output to file\n");
         vga_printf("  clear               - Clear screen\n");
         vga_printf("  exit                - Exit shell\n");
     }

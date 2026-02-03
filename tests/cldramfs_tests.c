@@ -3,6 +3,7 @@
 #include <string.h>
 #include <kmalloc.h>
 #include "../drivers/cldramfs/cldramfs.h"
+#include "../drivers/cldramfs/shell.h"
 
 CLDTEST_SUITE(cldramfs_tests) {}
 
@@ -125,6 +126,21 @@ CLDTEST_WITH_SUITE("CldRamfs command parsing", cldramfs_command_parsing, cldramf
     
     cldramfs_cmd_cat("missing.txt");
     assert(cldramfs_find_child(ramfs_root, "missing.txt") == NULL);
+
+    cldramfs_shell_process_command("echo hello > out.txt");
+    Node *out = cldramfs_resolve_path_file("out.txt", 0);
+    assert(out != NULL);
+    assert(out->type == FILE_NODE);
+    assert(strcmp(out->content, "hello\n") == 0);
+
+    cldramfs_shell_process_command("echo world >> out.txt");
+    assert(strcmp(out->content, "hello\nworld\n") == 0);
+
+    cldramfs_shell_process_command("cat out.txt > copy.txt");
+    Node *copy = cldramfs_resolve_path_file("copy.txt", 0);
+    assert(copy != NULL);
+    assert(copy->type == FILE_NODE);
+    assert(strcmp(copy->content, "hello\nworld\n") == 0);
     
     // Cleanup
     cldramfs_free_node(ramfs_root);

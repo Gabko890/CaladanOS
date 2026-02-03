@@ -29,6 +29,8 @@ typedef void (*vga_putchar_sink_t)(char);
 typedef void (*vga_attr_sink_t)(u8);
 void vga_set_putchar_sink(vga_putchar_sink_t fn, int suppress_default);
 void vga_clear_putchar_sink(void);
+int vga_push_putchar_sink(vga_putchar_sink_t fn, int suppress_default);
+void vga_pop_putchar_sink(void);
 void vga_set_attr_sink(vga_attr_sink_t fn, int suppress_default);
 void vga_clear_attr_sink(void);
 

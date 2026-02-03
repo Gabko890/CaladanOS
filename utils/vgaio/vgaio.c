@@ -18,6 +18,16 @@ static int g_putchar_sink_suppress = 0;
 static vga_attr_sink_t g_attr_sink = NULL;
 static int g_attr_sink_suppress = 0;
 
+typedef struct {
+    vga_putchar_sink_t fn;
+    int suppress_default;
+} vga_putchar_sink_state_t;
+
+#define VGA_SINK_STACK_MAX 4
+
+static vga_putchar_sink_state_t g_putchar_sink_stack[VGA_SINK_STACK_MAX];
+static int g_putchar_sink_depth = 0;
+
 // ANSI escape sequence parsing state
 typedef enum {
     ANSI_STATE_NORMAL,
@@ -564,6 +574,24 @@ void vga_set_putchar_sink(vga_putchar_sink_t fn, int suppress_default) {
 void vga_clear_putchar_sink(void) {
     g_putchar_sink = NULL;
     g_putchar_sink_suppress = 0;
+}
+
+int vga_push_putchar_sink(vga_putchar_sink_t fn, int suppress_default) {
+    if (g_putchar_sink_depth >= VGA_SINK_STACK_MAX) return -1;
+    g_putchar_sink_stack[g_putchar_sink_depth].fn = g_putchar_sink;
+    g_putchar_sink_stack[g_putchar_sink_depth].suppress_default = g_putchar_sink_suppress;
+    g_putchar_sink_depth++;
+    vga_set_putchar_sink(fn, suppress_default);
+    return 0;
+}
+
+void vga_pop_putchar_sink(void) {
+    if (g_putchar_sink_depth <= 0) return;
+    g_putchar_sink_depth--;
+    g_putchar_sink = g_putchar_sink_stack[g_putchar_sink_depth].fn;
+    g_putchar_sink_suppress = g_putchar_sink_stack[g_putchar_sink_depth].suppress_default;
+    ansi_state = ANSI_STATE_NORMAL;
+    ansi_buffer_pos = 0;
 }
 
 void vga_set_attr_sink(vga_attr_sink_t fn, int suppress_default) {

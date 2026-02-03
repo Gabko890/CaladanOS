@@ -338,70 +338,8 @@ void cldramfs_cmd_cat(const char *arg) {
     }
 }
 
-static void write_to_file(Node *file, const char *text, int append) {
-    u32 text_len = strlen(text);
-    
-    if (append && file->content && file->content_size > 0) {
-        u32 new_size = file->content_size + text_len;
-        char *new_content = (char*)kmalloc(new_size + 1);
-        if (new_content) {
-            strcpy(new_content, file->content);
-            strcat(new_content, text);
-            kfree(file->content);
-            file->content = new_content;
-            file->content_size = new_size;
-        }
-    } else {
-        kfree(file->content);
-        file->content = (char*)kmalloc(text_len + 1);
-        if (file->content) {
-            strcpy(file->content, text);
-            file->content_size = text_len;
-        }
-    }
-}
-
 void cldramfs_cmd_echo(const char *args) {
-    if (!args) return;
-    
-    char temp[512];
-    strncpy(temp, args, 511);
-    temp[511] = '\0';
-    
-    char *redir_pos = strstr(temp, ">>");
-    int append = 0;
-    char *filename = NULL;
-    
-    if (redir_pos) {
-        append = 1;
-        *redir_pos = '\0';
-        filename = redir_pos + 2;
-        while (*filename == ' ') filename++;
-    } else {
-        redir_pos = strstr(temp, ">");
-        if (redir_pos) {
-            *redir_pos = '\0';
-            filename = redir_pos + 1;
-            while (*filename == ' ') filename++;
-        }
-    }
-    
-    char *text = temp;
-    while (*text == ' ') text++;
-    
-    u32 text_len = strlen(text);
-    while (text_len > 0 && (text[text_len-1] == ' ' || text[text_len-1] == '\t')) {
-        text[--text_len] = '\0';
-    }
-    
-    if (filename) {
-        Node *file = cldramfs_resolve_path_file(filename, 1);
-        if (file) {
-            write_to_file(file, text, append);
-        }
-    } else {
-        vga_printf("%s\n", text);
-    }
+    vga_printf("%s\n", args ? args : "");
 }
 
 
