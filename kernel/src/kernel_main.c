@@ -30,6 +30,22 @@
 static int shell_active = 0;
 static volatile int shell_capture = 0;
 static volatile int shell_capture_ready = 0;
+static volatile int shell_input_pending = 0;
+
+static void shell_deferred_handle_input(void *arg) {
+    (void)arg;
+    cldramfs_shell_handle_input();
+    shell_input_pending = 0;
+}
+
+void shell_schedule_input(void) {
+    if (shell_input_pending) return;
+    shell_input_pending = 1;
+    if (deferred_schedule(shell_deferred_handle_input, 0) != 0) {
+        shell_input_pending = 0;
+        vga_printf("shell: command queue full\n");
+    }
+}
 
 // Key handler for shell
 void shell_key_handler(u8 scancode, int is_extended, int is_pressed) {
@@ -38,8 +54,7 @@ void shell_key_handler(u8 scancode, int is_extended, int is_pressed) {
         if (shell_capture) {
             shell_capture_ready = 1;
         } else {
-            // Line is ready, process it
-            cldramfs_shell_handle_input();
+            shell_schedule_input();
         }
     }
 }

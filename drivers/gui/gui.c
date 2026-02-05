@@ -659,9 +659,8 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
     if (window_open && is_pressed) {
         if (cur_win == WIN_TERMINAL) {
             extern int tty_global_handle_key(u8 scancode, int is_extended);
-            extern void cldramfs_shell_handle_input(void);
             if (tty_global_handle_key(scancode, is_extended)) {
-                cldramfs_shell_handle_input();
+                shell_schedule_input();
             }
         } else if (cur_win == WIN_EDITOR) {
             gui_editor_handle_key(scancode, is_extended, is_pressed);

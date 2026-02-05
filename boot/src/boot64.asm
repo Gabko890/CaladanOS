@@ -6,7 +6,7 @@ default rel
 SECTION .boot.text align=16
 global long_mode_entry
 extern kernel_main
-extern __stack_top_hh        ; from linker.ld
+extern __stack_bottom_hh     ; high end of reserved higher-half stack
 
 extern mb_info
 extern mb_magic
@@ -20,8 +20,10 @@ long_mode_entry:
     mov     fs, ax
     mov     gs, ax
 
-    ; Load the higher-half stack using a full 64-bit immediate
-    mov     rsp, __stack_top_hh
+    ; Load the high end of the higher-half stack.
+    ; The reserved stack grows downward from __stack_bottom_hh.
+    mov     rsp, __stack_bottom_hh
+    and     rsp, -16
     
     ;mov     edi, dword [mb_magic]
     ;mov     esi, dword [mb_info]
@@ -29,6 +31,12 @@ long_mode_entry:
     mov rdi, [mb_magic]
     mov rsi, [mb_info]
 
-    ; Jump to higher-half C entry with a 64-bit absolute jump
+    ; Enter C through a call so kernel_main sees the normal x86_64 ABI stack
+    ; alignment (%rsp mod 16 == 8 on function entry).
     mov     rax, kernel_main
-    jmp     rax
+    call    rax
+
+.halt:
+    cli
+    hlt
+    jmp     .halt
