@@ -110,6 +110,69 @@ void vga_update_cursor(int x, int y) {
 static inline int text_width(void)  { if (fb_console_is_active()) { int w,h; fb_console_get_size(&w,&h); return w; } return VGA_WIDTH; }
 static inline int text_height(void) { if (fb_console_is_active()) { int w,h; fb_console_get_size(&w,&h); return h; } return VGA_HEIGHT; }
 
+static u8 ansi_color_to_vga(int color, int bright) {
+    static const u8 map[8] = {
+        0x00, // black
+        0x04, // red
+        0x02, // green
+        0x06, // yellow/brown
+        0x01, // blue
+        0x05, // magenta
+        0x03, // cyan
+        0x07, // white/light gray
+    };
+    u8 v = map[color & 7];
+    if (bright && v != 0) v |= 0x08;
+    return v;
+}
+
+static void vga_handle_sgr(void) {
+    int pos = 0;
+    int pending_bright = 0;
+
+    if (ansi_buffer_pos == 1 && ansi_buffer[0] == 'm') {
+        arrt = 0x07;
+        return;
+    }
+
+    while (pos < ansi_buffer_pos) {
+        int value = 0;
+        int have_value = 0;
+
+        while (pos < ansi_buffer_pos && ansi_buffer[pos] >= '0' && ansi_buffer[pos] <= '9') {
+            have_value = 1;
+            value = value * 10 + (ansi_buffer[pos] - '0');
+            pos++;
+        }
+
+        if (!have_value) value = 0;
+
+        if (value == 0) {
+            arrt = 0x07;
+            pending_bright = 0;
+        } else if (value == 1) {
+            pending_bright = 1;
+        } else if (value == 22) {
+            pending_bright = 0;
+        } else if (value == 39) {
+            arrt = (arrt & 0xF0) | 0x07;
+        } else if (value == 49) {
+            arrt = (arrt & 0x0F);
+        } else if (value >= 30 && value <= 37) {
+            arrt = (arrt & 0xF0) | ansi_color_to_vga(value - 30, pending_bright);
+        } else if (value >= 40 && value <= 47) {
+            arrt = (arrt & 0x0F) | (u8)(ansi_color_to_vga(value - 40, 0) << 4);
+        } else if (value >= 90 && value <= 97) {
+            arrt = (arrt & 0xF0) | ansi_color_to_vga(value - 90, 1);
+        } else if (value >= 100 && value <= 107) {
+            arrt = (arrt & 0x0F) | (u8)(ansi_color_to_vga(value - 100, 1) << 4);
+        }
+
+        if (pos < ansi_buffer_pos && ansi_buffer[pos] == ';') pos++;
+        if (pos < ansi_buffer_pos && ansi_buffer[pos] == 'm') break;
+    }
+}
+
 static void vga_scroll_up(void) {
     if (fb_console_present()) {
         fb_console_scroll_up(arrt);
@@ -165,6 +228,9 @@ static void vga_handle_ansi_sequence(void) {
                 vga_update_cursor(cursor.x, cursor.y);
                 if (fb_console_present()) fb_softcursor_draw();
                 break;
+            case 'm': // Reset SGR
+                vga_handle_sgr();
+                break;
         }
     } else if (ansi_buffer_pos == 2) {
         if (ansi_buffer[0] == '2') {
@@ -180,7 +246,11 @@ static void vga_handle_ansi_sequence(void) {
                     vga_clear_line();
                     break;
             }
+        } else if (ansi_buffer[1] == 'm') {
+            vga_handle_sgr();
         }
+    } else if (ansi_buffer_pos > 2 && ansi_buffer[ansi_buffer_pos - 1] == 'm') {
+        vga_handle_sgr();
     }
     // Reset state
     ansi_state = ANSI_STATE_NORMAL;

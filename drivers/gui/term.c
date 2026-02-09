@@ -57,6 +57,18 @@ static t_ansi_state_t t_state = T_ANSI_NORMAL;
 static char t_buf[16];
 static int t_buf_pos = 0;
 
+static void term_reset_state(void) {
+    cur_x = 0;
+    cur_y = 0;
+    cur_attr = 0x07;
+    caret_drawn = 0;
+    caret_x = 0;
+    caret_y = 0;
+    t_state = T_ANSI_NORMAL;
+    t_buf_pos = 0;
+    t_buf[0] = '\0';
+}
+
 static void term_render_all(void) {
     if (!cells) return;
     // Draw background implicitly via glyph bg for each cell
@@ -116,6 +128,69 @@ static void term_scroll_up(void) {
     term_render_all();
 }
 
+static u8 ansi_color_to_vga(int color, int bright) {
+    static const u8 map[8] = {
+        0x00, // black
+        0x04, // red
+        0x02, // green
+        0x06, // yellow/brown
+        0x01, // blue
+        0x05, // magenta
+        0x03, // cyan
+        0x07, // white/light gray
+    };
+    u8 v = map[color & 7];
+    if (bright && v != 0) v |= 0x08;
+    return v;
+}
+
+static void term_handle_sgr(void) {
+    int pos = 0;
+    int pending_bright = 0;
+
+    if (t_buf_pos == 1 && t_buf[0] == 'm') {
+        cur_attr = 0x07;
+        return;
+    }
+
+    while (pos < t_buf_pos) {
+        int value = 0;
+        int have_value = 0;
+
+        while (pos < t_buf_pos && t_buf[pos] >= '0' && t_buf[pos] <= '9') {
+            have_value = 1;
+            value = value * 10 + (t_buf[pos] - '0');
+            pos++;
+        }
+
+        if (!have_value) value = 0;
+
+        if (value == 0) {
+            cur_attr = 0x07;
+            pending_bright = 0;
+        } else if (value == 1) {
+            pending_bright = 1;
+        } else if (value == 22) {
+            pending_bright = 0;
+        } else if (value == 39) {
+            cur_attr = (cur_attr & 0xF0) | 0x07;
+        } else if (value == 49) {
+            cur_attr = (cur_attr & 0x0F);
+        } else if (value >= 30 && value <= 37) {
+            cur_attr = (cur_attr & 0xF0) | ansi_color_to_vga(value - 30, pending_bright);
+        } else if (value >= 40 && value <= 47) {
+            cur_attr = (cur_attr & 0x0F) | (u8)(ansi_color_to_vga(value - 40, 0) << 4);
+        } else if (value >= 90 && value <= 97) {
+            cur_attr = (cur_attr & 0xF0) | ansi_color_to_vga(value - 90, 1);
+        } else if (value >= 100 && value <= 107) {
+            cur_attr = (cur_attr & 0x0F) | (u8)(ansi_color_to_vga(value - 100, 1) << 4);
+        }
+
+        if (pos < t_buf_pos && t_buf[pos] == ';') pos++;
+        if (pos < t_buf_pos && t_buf[pos] == 'm') break;
+    }
+}
+
 static void term_putc(char c) {
     term_caret_undraw();
     if (c == '\n') {
@@ -158,6 +233,9 @@ static void term_handle_ansi(void) {
             case 'G': // move to beginning of line
                 cur_x = 0;
                 break;
+            case 'm': // Reset SGR
+                term_handle_sgr();
+                break;
         }
     } else if (t_buf_pos == 2) {
         if (t_buf[0] == '2') {
@@ -169,7 +247,11 @@ static void term_handle_ansi(void) {
                     term_clear_line_full();
                     break;
             }
+        } else if (t_buf[1] == 'm') {
+            term_handle_sgr();
         }
+    } else if (t_buf_pos > 2 && t_buf[t_buf_pos - 1] == 'm') {
+        term_handle_sgr();
     }
     t_state = T_ANSI_NORMAL; t_buf_pos = 0;
     term_caret_draw();
@@ -183,7 +265,7 @@ void gui_term_init(u32 px, u32 py, u32 pw, u32 ph) {
     rows = (int)(ph / (u32)cell_h);
     if (cols <= 0) cols = 1;
     if (rows <= 0) rows = 1;
-    cur_x = 0; cur_y = 0; cur_attr = 0x07;
+    term_reset_state();
     // Allocate backing store
     cells = (TermCell*)kmalloc((size_t)(rows * cols * (int)sizeof(TermCell)));
     if (cells) {
@@ -225,6 +307,7 @@ void gui_term_putchar(char c) {
 void gui_term_attach(void) {
     vga_set_putchar_sink(gui_term_putchar, 1);
     vga_set_attr_sink(gui_term_set_attr, 1);
+    vga_attr(0x07);
 }
 
 void gui_term_detach(void) {
@@ -245,4 +328,5 @@ void gui_term_free(void) {
         kfree(cells);
         cells = 0;
     }
+    term_reset_state();
 }

@@ -6,6 +6,7 @@ void shell_pause(void);
 void shell_resume(void);
 int shell_is_active(void);
 void shell_schedule_input(void);
+void shell_schedule_gui_input(void);
 
 // Temporary input capture mode used by external components (e.g., Lua VM)
 void shell_capture_begin(void);

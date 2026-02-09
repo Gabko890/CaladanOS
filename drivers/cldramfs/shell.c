@@ -67,6 +67,21 @@ static void trim_trailing_whitespace(char *str) {
     }
 }
 
+static int shell_line_is_command(const char *line, const char *expected) {
+    if (!line || !expected) return 0;
+    char buf[256];
+    u32 expected_len = strlen(expected);
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    trim_trailing_whitespace(buf);
+    char *cmd = skip_whitespace(buf);
+    if (strncmp(cmd, expected, expected_len) != 0) return 0;
+    return cmd[expected_len] == '\0' ||
+           cmd[expected_len] == ' ' ||
+           cmd[expected_len] == '\t' ||
+           cmd[expected_len] == '>';
+}
+
 static int shell_parse_redirection(char *cmd, char **filename, int *append) {
     *filename = NULL;
     *append = 0;
@@ -478,6 +493,26 @@ void cldramfs_shell_handle_input(void) {
     
     tty_global_reset_line();
     if (shell_running && shell_is_active()) {
+        tty_print_prompt();
+    }
+}
+
+void cldramfs_shell_handle_gui_terminal_input(void) {
+    if (!shell_running) return;
+
+    char *line = tty_global_get_line();
+    if (shell_line_is_command(line, "exit")) {
+        tty_global_reset_line();
+        gui_close_terminal();
+        return;
+    }
+
+    if (line && *line) {
+        cldramfs_shell_process_command(line);
+    }
+
+    tty_global_reset_line();
+    if (shell_running) {
         tty_print_prompt();
     }
 }

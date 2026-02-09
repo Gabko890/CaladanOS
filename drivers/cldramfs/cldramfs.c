@@ -338,8 +338,76 @@ void cldramfs_cmd_cat(const char *arg) {
     }
 }
 
+static int echo_hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
 void cldramfs_cmd_echo(const char *args) {
-    vga_printf("%s\n", args ? args : "");
+    if (!args) {
+        vga_putchar('\n');
+        return;
+    }
+
+    for (u32 i = 0; args[i]; i++) {
+        if (args[i] != '\\') {
+            vga_putchar(args[i]);
+            continue;
+        }
+
+        char next = args[++i];
+        if (!next) {
+            vga_putchar('\\');
+            break;
+        }
+
+        switch (next) {
+            case 'e':
+            case 'E':
+                vga_putchar('\x1b');
+                break;
+            case 'n':
+                vga_putchar('\n');
+                break;
+            case 't':
+                vga_putchar('\t');
+                break;
+            case 'r':
+                vga_putchar('\r');
+                break;
+            case '\\':
+                vga_putchar('\\');
+                break;
+            case 'x': {
+                int h1 = echo_hex_value(args[i + 1]);
+                int h2 = echo_hex_value(args[i + 2]);
+                if (h1 >= 0 && h2 >= 0) {
+                    vga_putchar((char)((h1 << 4) | h2));
+                    i += 2;
+                } else {
+                    vga_putchar('x');
+                }
+                break;
+            }
+            case '0': {
+                int value = 0;
+                int count = 0;
+                while (count < 3 && args[i + 1] >= '0' && args[i + 1] <= '7') {
+                    value = value * 8 + (args[i + 1] - '0');
+                    i++;
+                    count++;
+                }
+                vga_putchar((char)value);
+                break;
+            }
+            default:
+                vga_putchar(next);
+                break;
+        }
+    }
+    vga_putchar('\n');
 }
 
 

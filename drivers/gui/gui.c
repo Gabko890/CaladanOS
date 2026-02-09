@@ -3,6 +3,7 @@
 #include <ps2.h>
 #include <vgaio.h>
 #include <shell_control.h>
+#include <cldramfs/tty.h>
 #include <kmalloc.h>
 #include "gui.h"
 #include "term.h"
@@ -183,6 +184,28 @@ static void gui_cursor_draw(u32 x, u32 y) {
     }
 }
 
+static void gui_close_terminal_internal(int restore_window_area, int redraw_cursor) {
+    if (!window_open || cur_win != WIN_TERMINAL) return;
+
+    if (redraw_cursor) gui_cursor_undraw();
+    gui_term_detach();
+    gui_term_free();
+    if (terminal_win_id > 0) {
+        gui_bar_unregister_window(terminal_win_id);
+        terminal_win_id = -1;
+    }
+    if (restore_window_area) restore_bg_rect(win_x, win_y, win_w, win_h);
+    gui_bar_render();
+    window_open = 0;
+    cur_win = WIN_NONE;
+    dragging = 0;
+    if (redraw_cursor) gui_cursor_draw(cursor_x, cursor_y);
+}
+
+void gui_close_terminal(void) {
+    gui_close_terminal_internal(1, 1);
+}
+
 static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (!gui_active) return;
     u32 old_wx = win_x, old_wy = win_y;
@@ -275,8 +298,10 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
                 u32 content_h = (win_h > title_h + 10) ? (win_h - title_h - 10) : 0;
                 gui_term_init(content_x, content_y, content_w, content_h);
                 gui_term_attach();
-                gui_term_render_all();
                 window_open = 1; cur_win = WIN_TERMINAL;
+                tty_global_reset_line();
+                tty_print_prompt();
+                gui_term_render_all();
             } else {
                 gui_bar_set_active_window(terminal_win_id);
                 gui_bar_render();
@@ -284,9 +309,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         } else if (action == 3) {
             // Open simple editor; if terminal exists, close it first
             if (window_open && cur_win == WIN_TERMINAL) {
-                gui_term_detach(); gui_term_free();
-                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
-                window_open = 0; cur_win = WIN_NONE;
+                gui_close_terminal_internal(0, 0);
             }
             // Create editor window
             // Default window size and position (below bar)
@@ -309,9 +332,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         } else if (action == 4) {
             // Open image viewer; close other window if present
             if (window_open && cur_win == WIN_TERMINAL) {
-                gui_term_detach(); gui_term_free();
-                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
-                window_open = 0; cur_win = WIN_NONE;
+                gui_close_terminal_internal(0, 0);
             } else if (window_open && cur_win == WIN_EDITOR) {
                 gui_editor_free();
                 if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
@@ -337,9 +358,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         } else if (action == 5) {
             // Open Snake; close other window if present
             if (window_open && cur_win == WIN_TERMINAL) {
-                gui_term_detach(); gui_term_free();
-                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
-                window_open = 0; cur_win = WIN_NONE;
+                gui_close_terminal_internal(0, 0);
             } else if (window_open && cur_win == WIN_EDITOR) {
                 gui_editor_free();
                 if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
@@ -369,9 +388,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         } else if (action == 6) {
             // Open Calculator; close other window if present
             if (window_open && cur_win == WIN_TERMINAL) {
-                gui_term_detach(); gui_term_free();
-                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
-                window_open = 0; cur_win = WIN_NONE;
+                gui_close_terminal_internal(0, 0);
             } else if (window_open && cur_win == WIN_EDITOR) {
                 gui_editor_free();
                 if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
@@ -501,8 +518,7 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             // Close current window: detach/free, clear area, unregister from bar
             gui_cursor_undraw();
             if (cur_win == WIN_TERMINAL) {
-                gui_term_detach(); gui_term_free();
-                if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+                gui_close_terminal_internal(1, 0);
             } else if (cur_win == WIN_EDITOR) {
                 gui_editor_free();
                 if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
@@ -617,8 +633,7 @@ void gui_open_snake(void) {
     // Close any existing window
     if (window_open) {
         if (cur_win == WIN_TERMINAL) {
-            gui_term_detach(); gui_term_free();
-            if (terminal_win_id > 0) { gui_bar_unregister_window(terminal_win_id); terminal_win_id = -1; }
+            gui_close_terminal_internal(0, 0);
         } else if (cur_win == WIN_EDITOR) {
             gui_editor_free();
             if (editor_win_id > 0) { gui_bar_unregister_window(editor_win_id); editor_win_id = -1; }
@@ -660,7 +675,7 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
         if (cur_win == WIN_TERMINAL) {
             extern int tty_global_handle_key(u8 scancode, int is_extended);
             if (tty_global_handle_key(scancode, is_extended)) {
-                shell_schedule_input();
+                shell_schedule_gui_input();
             }
         } else if (cur_win == WIN_EDITOR) {
             gui_editor_handle_key(scancode, is_extended, is_pressed);

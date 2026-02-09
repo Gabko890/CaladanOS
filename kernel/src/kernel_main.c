@@ -31,20 +31,36 @@ static int shell_active = 0;
 static volatile int shell_capture = 0;
 static volatile int shell_capture_ready = 0;
 static volatile int shell_input_pending = 0;
+static volatile int shell_input_from_gui = 0;
 
 static void shell_deferred_handle_input(void *arg) {
     (void)arg;
-    cldramfs_shell_handle_input();
+    if (shell_input_from_gui) {
+        cldramfs_shell_handle_gui_terminal_input();
+    } else {
+        cldramfs_shell_handle_input();
+    }
+    shell_input_from_gui = 0;
     shell_input_pending = 0;
 }
 
-void shell_schedule_input(void) {
+static void shell_schedule_input_source(int from_gui) {
     if (shell_input_pending) return;
+    shell_input_from_gui = from_gui;
     shell_input_pending = 1;
     if (deferred_schedule(shell_deferred_handle_input, 0) != 0) {
+        shell_input_from_gui = 0;
         shell_input_pending = 0;
         vga_printf("shell: command queue full\n");
     }
+}
+
+void shell_schedule_input(void) {
+    shell_schedule_input_source(0);
+}
+
+void shell_schedule_gui_input(void) {
+    shell_schedule_input_source(1);
 }
 
 // Key handler for shell
