@@ -375,7 +375,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  mv <src> <dst>      - Move/rename file\n");
         vga_printf("  echo [text]         - Print text to stdout\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
-        vga_printf("  lua <script.lua>    - Run simple Lua-like script\n");
+        vga_printf("  lua <script.lua>    - Run Lua script\n");
         vga_printf("  sysinfo             - Show kernel build information\n");
         vga_printf("  startgui            - Start GUI (Menu → Exit GUI)\n");
         vga_printf("  snake               - Open Snake in GUI\n");
