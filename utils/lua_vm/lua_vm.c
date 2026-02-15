@@ -8,6 +8,7 @@
 #include <ps2.h>
 #include <shell_control.h>
 #include <pit/pit.h>
+#include <gui/gui.h>
 
 #include <lua.h>
 
@@ -20,31 +21,16 @@ typedef struct {
 } vm_args_t;
 
 // ---- input helpers (no echo line and getch) ----
-static volatile int vm_waiting_input = 0;
-static volatile int vm_input_ready = 0;
-static char *vm_last_input = NULL;
-
 static volatile int vm_waiting_ch = 0;
 static volatile int vm_ch_ready = 0;
 static char vm_ch = '\0';
+static int vm_restore_to_gui = 0;
 
-static void set_vm_last_input(const char *src) {
-    if (vm_last_input) { kfree(vm_last_input); vm_last_input = NULL; }
-    if (!src) return;
-    u32 n = strlen(src);
-    vm_last_input = (char*)kmalloc(n + 1);
-    if (vm_last_input) { strcpy(vm_last_input, src); }
-}
-
-static void vm_key_line(u8 sc, int is_extended, int is_pressed) {
-    (void)is_pressed;
-    if (!vm_waiting_input) return;
-    if (tty_global_handle_key(sc, is_extended)) {
-        char *line = tty_global_get_line();
-        set_vm_last_input(line);
-        vm_input_ready = 1;
-        vm_waiting_input = 0;
-        tty_global_reset_line();
+static void vm_restore_input_owner(void) {
+    if (vm_restore_to_gui) {
+        gui_restore_input();
+    } else {
+        ps2_set_key_callback(shell_key_handler);
     }
 }
 
@@ -146,7 +132,7 @@ static int l_input(lua_State *L) {
         vm_ch_ready = 0; vm_waiting_ch = 1;
         ps2_set_key_callback(vm_key_getch);
         while (!vm_ch_ready) { }
-        ps2_set_key_callback(shell_key_handler);
+        vm_restore_input_owner();
 
         char c = vm_ch;
         if (c == '\r') c = '\n';
@@ -173,7 +159,6 @@ static int l_input(lua_State *L) {
         if (nbuf) buf = nbuf; else if (len > 0) len--; // ensure space
     }
     buf[len] = '\0';
-    set_vm_last_input(buf);
     lua_pushstring(L, buf);
     kfree(buf);
     return 1;
@@ -183,7 +168,7 @@ static int l_getch(lua_State *L) {
     (void)L;
     vm_ch_ready = 0; vm_waiting_ch = 1; ps2_set_key_callback(vm_key_getch);
     while (!vm_ch_ready) { }
-    ps2_set_key_callback(shell_key_handler);
+    vm_restore_input_owner();
     char tmp[2] = { vm_ch, '\0' };
     lua_pushstring(L, tmp);
     return 1;
@@ -272,13 +257,13 @@ static void* l_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
 }
 
 int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) {
-    if (!path || !*path) { vga_printf("lua(vm): missing script path\n"); return 1; }
+    if (!path || !*path) { vga_printf("lua: missing script path\n"); return 1; }
     Node *file = cldramfs_resolve_path_file(path, 0);
-    if (!file || file->type != FILE_NODE || !file->content) { vga_printf("lua(vm): file not found: %s\n", path); return 1; }
+    if (!file || file->type != FILE_NODE || !file->content) { vga_printf("lua: cannot open %s\n", path); return 1; }
 
     vm_args_t args = { .argc = argc, .argv = argv };
     lua_State *L = lua_newstate(l_alloc, &args, 0x12345678u);
-    if (!L) { vga_printf("lua(vm): failed to create state\n"); return 1; }
+    if (!L) { vga_printf("lua: failed to create state\n"); return 1; }
 
     // Register globals
     lua_pushcfunction(L, l_print); lua_setglobal(L, "print");
@@ -307,37 +292,47 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     chunk_t ck = { .buf = file->content, .len = file->content_size, .used = 0 };
     if (lua_load(L, lreader, &ck, path, NULL) != LUA_OK) {
         const char *err = lua_tostring(L, -1);
-        vga_printf("lua(vm): load error: %s\n", err ? err : "<err>");
+        vga_printf("lua: %s\n", err ? err : "load error");
+        lua_close(L);
         return 1;
     }
     // Run
     if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
         const char *err = lua_tostring(L, -1);
-        vga_printf("lua(vm): runtime error: %s\n", err ? err : "<err>");
+        vga_printf("lua: %s\n", err ? err : "runtime error");
+        lua_close(L);
         return 1;
     }
+    lua_close(L);
     return 0;
 }
 
-typedef struct { char *path; int argc; char **argv; } lua_task_args_t;
+typedef struct { char *path; int argc; char **argv; int from_gui; } lua_task_args_t;
 
 void cld_luavm_run_deferred(void *arg) {
     const char *path = (const char*)arg; const char *argv0 = path;
-    int rc = cld_luavm_run_file_with_args(path, 1, &argv0);
-    if (rc != 0) vga_printf("lua(vm): exited with code %d\n", rc);
+    vm_restore_to_gui = 0;
+    (void)cld_luavm_run_file_with_args(path, 1, &argv0);
     if (arg) kfree(arg);
     shell_resume();
 }
 
 void cld_luavm_run_deferred_with_args(void *arg) {
     lua_task_args_t *t = (lua_task_args_t*)arg; const char **argv = (const char**)t->argv;
-    int rc = cld_luavm_run_file_with_args(t->path, t->argc, argv);
-    if (rc != 0) vga_printf("lua(vm): exited with code %d\n", rc);
+    int from_gui = t ? t->from_gui : 0;
+    vm_restore_to_gui = from_gui;
+    (void)cld_luavm_run_file_with_args(t->path, t->argc, argv);
     if (t) {
         if (t->path) kfree(t->path);
         for (int i=0;i<t->argc;i++) { if (t->argv && t->argv[i]) kfree(t->argv[i]); }
         if (t->argv) { kfree(t->argv); }
         kfree(t);
     }
-    shell_resume();
+    vm_restore_to_gui = 0;
+    if (from_gui) {
+        gui_restore_input();
+        tty_print_prompt();
+    } else {
+        shell_resume();
+    }
 }

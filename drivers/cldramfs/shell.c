@@ -18,6 +18,8 @@ extern char* tty_global_get_line(void);
 extern void tty_global_reset_line(void);
 
 static int shell_running = 0;
+static int shell_command_from_gui = 0;
+static int shell_async_command_scheduled = 0;
 
 typedef struct {
     char *data;
@@ -339,16 +341,16 @@ int cldramfs_shell_process_command(const char *command_line) {
             if (tcount <= 0) { vga_printf("lua: bad args\n"); }
             else {
                 // Build task args
-                typedef struct { char *path; int argc; char **argv; } lua_task_args_t; // mirrored
+                typedef struct { char *path; int argc; char **argv; int from_gui; } lua_task_args_t; // mirrored
                 lua_task_args_t *task = (lua_task_args_t*)kmalloc(sizeof(*task));
                 if (!task) { vga_printf("lua: oom\n"); return 0; }
                 task->argc = tcount;
+                task->from_gui = shell_command_from_gui;
                 task->argv = (char**)kmalloc(sizeof(char*) * tcount);
                 if (!task->argv) { kfree(task); vga_printf("lua: oom\n"); return 0; }
                 for (int i=0;i<tcount;i++){ u32 n=strlen(tokens[i]); task->argv[i]=(char*)kmalloc(n+1); if(task->argv[i]) strcpy(task->argv[i], tokens[i]); }
                 u32 pn = strlen(tokens[0]); task->path = (char*)kmalloc(pn+1); if (task->path) strcpy(task->path, tokens[0]);
-                // Pause and schedule
-                shell_pause();
+                // Pause only after scheduling succeeds, otherwise input stays usable.
                 extern void cld_luavm_run_deferred_with_args(void *arg);
                 if (!task->path || deferred_schedule(cld_luavm_run_deferred_with_args, task) != 0) {
                     vga_printf("lua: failed to schedule\n");
@@ -358,6 +360,9 @@ int cldramfs_shell_process_command(const char *command_line) {
                         kfree(task->argv);
                         kfree(task);
                     }
+                } else {
+                    shell_pause();
+                    shell_async_command_scheduled = 1;
                 }
             }
         }
@@ -448,18 +453,18 @@ int cldramfs_shell_process_command(const char *command_line) {
                     if (*p) { *p='\0'; p++; }
                 }
                 // Build task args: path + tokens
-                typedef struct { char *path; int argc; char **argv; } lua_task_args_t; // mirrored
+                typedef struct { char *path; int argc; char **argv; int from_gui; } lua_task_args_t; // mirrored
                 lua_task_args_t *task = (lua_task_args_t*)kmalloc(sizeof(*task));
                 if (!task) { vga_printf("lua: oom\n"); return 0; }
                 task->argc = tcount + 1;
+                task->from_gui = shell_command_from_gui;
                 task->argv = (char**)kmalloc(sizeof(char*) * (tcount + 1));
                 if (!task->argv) { kfree(task); vga_printf("lua: oom\n"); return 0; }
                 // argv[0] = fullpath
                 u32 pn = strlen(fullpath); task->path = (char*)kmalloc(pn+1); if (task->path) strcpy(task->path, fullpath);
                 task->argv[0] = (char*)kmalloc(pn+1); if (task->argv[0]) strcpy(task->argv[0], fullpath);
                 for (int j=0;j<tcount;j++) { u32 n=strlen(tokens[j]); task->argv[j+1]=(char*)kmalloc(n+1); if(task->argv[j+1]) strcpy(task->argv[j+1], tokens[j]); }
-                // Pause and schedule VM
-                shell_pause();
+                // Pause only after scheduling succeeds, otherwise input stays usable.
                 extern void cld_luavm_run_deferred_with_args(void *arg);
                 if (!task->path || !task->argv[0] || deferred_schedule(cld_luavm_run_deferred_with_args, task) != 0) {
                     vga_printf("lua: failed to schedule\n");
@@ -471,6 +476,9 @@ int cldramfs_shell_process_command(const char *command_line) {
                         }
                         kfree(task);
                     }
+                } else {
+                    shell_pause();
+                    shell_async_command_scheduled = 1;
                 }
                 return 0;
             }
@@ -508,13 +516,17 @@ void cldramfs_shell_handle_gui_terminal_input(void) {
     }
 
     if (line && *line) {
+        shell_command_from_gui = 1;
+        shell_async_command_scheduled = 0;
         cldramfs_shell_process_command(line);
+        shell_command_from_gui = 0;
     }
 
     tty_global_reset_line();
-    if (shell_running) {
+    if (shell_running && !shell_async_command_scheduled) {
         tty_print_prompt();
     }
+    shell_async_command_scheduled = 0;
 }
 
 int cldramfs_shell_is_running(void) {

@@ -42,6 +42,7 @@ static const u8 COL_BORDER[3] = { 0x00, 0x00, 0x00 };
 
 // Forward declaration for local stop helper
 static void gui_stop(void);
+static void gui_key_handler(u8 scancode, int is_extended, int is_pressed);
 
 static void draw_rect_rgb(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
     fb_fill_rect_rgb(x, y, w, h, rgb[0], rgb[1], rgb[2]);
@@ -204,6 +205,12 @@ static void gui_close_terminal_internal(int restore_window_area, int redraw_curs
 
 void gui_close_terminal(void) {
     gui_close_terminal_internal(1, 1);
+}
+
+void gui_restore_input(void) {
+    if (gui_active) {
+        ps2_set_key_callback(gui_key_handler);
+    }
 }
 
 static void gui_mouse_cb(int dx, int dy, u8 buttons) {
