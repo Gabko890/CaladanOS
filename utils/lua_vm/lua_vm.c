@@ -25,8 +25,19 @@ static volatile int vm_waiting_ch = 0;
 static volatile int vm_ch_ready = 0;
 static char vm_ch = '\0';
 static int vm_restore_to_gui = 0;
+static int vm_running = 0;
+
+static void vm_key_idle(u8 sc, int is_extended, int is_pressed) {
+    (void)sc;
+    (void)is_extended;
+    (void)is_pressed;
+}
 
 static void vm_restore_input_owner(void) {
+    if (vm_running) {
+        ps2_set_key_callback(vm_key_idle);
+        return;
+    }
     if (vm_restore_to_gui) {
         gui_restore_input();
     } else {
@@ -179,6 +190,82 @@ static int l_exit(lua_State *L) {
     return 0;
 }
 
+static int key_name_to_scancode(const char *name) {
+    if (!name || !*name) return -1;
+    if (name[1] == '\0') {
+        char c = name[0];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        switch (c) {
+            case 'a': return US_A;
+            case 'b': return US_B;
+            case 'c': return US_C;
+            case 'd': return US_D;
+            case 'e': return US_E;
+            case 'f': return US_F;
+            case 'g': return US_G;
+            case 'h': return US_H;
+            case 'i': return US_I;
+            case 'j': return US_J;
+            case 'k': return US_K;
+            case 'l': return US_L;
+            case 'm': return US_M;
+            case 'n': return US_N;
+            case 'o': return US_O;
+            case 'p': return US_P;
+            case 'q': return US_Q;
+            case 'r': return US_R;
+            case 's': return US_S;
+            case 't': return US_T;
+            case 'u': return US_U;
+            case 'v': return US_V;
+            case 'w': return US_W;
+            case 'x': return US_X;
+            case 'y': return US_Y;
+            case 'z': return US_Z;
+            case '0': return US_0;
+            case '1': return US_1;
+            case '2': return US_2;
+            case '3': return US_3;
+            case '4': return US_4;
+            case '5': return US_5;
+            case '6': return US_6;
+            case '7': return US_7;
+            case '8': return US_8;
+            case '9': return US_9;
+            case ' ': return US_SPACE;
+            case '-': return US_MINUS;
+            case '=': return US_EQUAL;
+            case '[': return US_LBRACKET;
+            case ']': return US_RBRACKET;
+            case '\\': return US_BACKSLASH;
+            case ';': return US_SEMICOLON;
+            case '\'': return US_APOSTROPHE;
+            case '`': return US_GRAVE;
+            case ',': return US_COMMA;
+            case '.': return US_DOT;
+            case '/': return US_SLASH;
+            default: return -1;
+        }
+    }
+    if (strcmp(name, "space") == 0 || strcmp(name, "SPACE") == 0) return US_SPACE;
+    if (strcmp(name, "enter") == 0 || strcmp(name, "ENTER") == 0) return US_ENTER;
+    if (strcmp(name, "esc") == 0 || strcmp(name, "ESC") == 0) return US_ESC;
+    if (strcmp(name, "tab") == 0 || strcmp(name, "TAB") == 0) return US_TAB;
+    if (strcmp(name, "backspace") == 0 || strcmp(name, "BACKSPACE") == 0) return US_BACKSPACE;
+    return -1;
+}
+
+static int l_keydown(lua_State *L) {
+    const char *name = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    int sc = key_name_to_scancode(name);
+    int down = 0;
+    if (sc >= 0 && sc < 128) {
+        down = (ps2_keyarr() & ((u128)1 << (u8)sc)) ? 1 : 0;
+    }
+    lua_pushboolean(L, down);
+    return 1;
+}
+
 static int l_sleep(lua_State *L) {
     int isnum = 0; long long ms = (long long)lua_tointegerx(L, 1, &isnum);
     if (!isnum) {
@@ -269,6 +356,7 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     lua_pushcfunction(L, l_print); lua_setglobal(L, "print");
     lua_pushcfunction(L, l_input); lua_setglobal(L, "input");
     lua_pushcfunction(L, l_getch); lua_setglobal(L, "getch");
+    lua_pushcfunction(L, l_keydown); lua_setglobal(L, "keydown");
     lua_pushcfunction(L, l_readfile); lua_setglobal(L, "readfile");
     lua_pushcfunction(L, l_writefile); lua_setglobal(L, "writefile");
     lua_pushcfunction(L, l_appendfile); lua_setglobal(L, "appendfile");
@@ -312,7 +400,10 @@ typedef struct { char *path; int argc; char **argv; int from_gui; } lua_task_arg
 void cld_luavm_run_deferred(void *arg) {
     const char *path = (const char*)arg; const char *argv0 = path;
     vm_restore_to_gui = 0;
+    vm_running = 1;
+    ps2_set_key_callback(vm_key_idle);
     (void)cld_luavm_run_file_with_args(path, 1, &argv0);
+    vm_running = 0;
     if (arg) kfree(arg);
     shell_resume();
 }
@@ -321,7 +412,10 @@ void cld_luavm_run_deferred_with_args(void *arg) {
     lua_task_args_t *t = (lua_task_args_t*)arg; const char **argv = (const char**)t->argv;
     int from_gui = t ? t->from_gui : 0;
     vm_restore_to_gui = from_gui;
+    vm_running = 1;
+    ps2_set_key_callback(vm_key_idle);
     (void)cld_luavm_run_file_with_args(t->path, t->argc, argv);
+    vm_running = 0;
     if (t) {
         if (t->path) kfree(t->path);
         for (int i=0;i<t->argc;i++) { if (t->argv && t->argv[i]) kfree(t->argv[i]); }
