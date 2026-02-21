@@ -11,6 +11,8 @@ void tty_init(TTY *tty) {
     tty->cursor_pos = 0;
     tty->history_count = 0;
     tty->history_pos = 0;
+    tty->history_saved_valid = 0;
+    tty->history_saved[0] = '\0';
     tty->escape_seq = 0;
     tty->escape_pos = 0;
     tty->buffer[0] = '\0';
@@ -19,7 +21,79 @@ void tty_init(TTY *tty) {
 void tty_reset_line(TTY *tty) {
     tty->buffer_pos = 0;
     tty->cursor_pos = 0;
+    tty->history_pos = 0;
+    tty->history_saved_valid = 0;
+    tty->history_saved[0] = '\0';
     tty->buffer[0] = '\0';
+}
+
+static void tty_set_line(TTY *tty, const char *line) {
+    u32 len = 0;
+    if (!line) line = "";
+    while (line[len] && len < TTY_BUFFER_SIZE - 1) {
+        tty->buffer[len] = line[len];
+        len++;
+    }
+    tty->buffer[len] = '\0';
+    tty->buffer_pos = len;
+    tty->cursor_pos = len;
+}
+
+static void tty_redraw_line(TTY *tty) {
+    vga_printf("\x1b[2K\x1b[G");
+    tty_print_prompt();
+    vga_printf("%s", tty->buffer);
+}
+
+static void tty_add_history(TTY *tty) {
+    if (tty->buffer_pos == 0) return;
+
+    if (tty->history_count > 0 &&
+        strcmp(tty->history[tty->history_count - 1], tty->buffer) == 0) {
+        return;
+    }
+
+    if (tty->history_count < TTY_HISTORY_SIZE) {
+        strcpy(tty->history[tty->history_count], tty->buffer);
+        tty->history_count++;
+        return;
+    }
+
+    for (u32 i = 1; i < TTY_HISTORY_SIZE; i++) {
+        strcpy(tty->history[i - 1], tty->history[i]);
+    }
+    strcpy(tty->history[TTY_HISTORY_SIZE - 1], tty->buffer);
+}
+
+static void tty_history_up(TTY *tty) {
+    if (tty->history_count == 0) return;
+
+    if (tty->history_pos == 0) {
+        strcpy(tty->history_saved, tty->buffer);
+        tty->history_saved_valid = 1;
+    }
+
+    if (tty->history_pos < tty->history_count) {
+        tty->history_pos++;
+    }
+
+    tty_set_line(tty, tty->history[tty->history_count - tty->history_pos]);
+    tty_redraw_line(tty);
+}
+
+static void tty_history_down(TTY *tty) {
+    if (tty->history_pos == 0) return;
+
+    tty->history_pos--;
+    if (tty->history_pos == 0) {
+        tty_set_line(tty, tty->history_saved_valid ? tty->history_saved : "");
+        tty->history_saved_valid = 0;
+        tty->history_saved[0] = '\0';
+    } else {
+        tty_set_line(tty, tty->history[tty->history_count - tty->history_pos]);
+    }
+
+    tty_redraw_line(tty);
 }
 
 char scancode_to_char(u8 scancode, int shift) {
@@ -106,10 +180,10 @@ int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
                 }
                 return 0;
             case US_ARROW_UP:
-                // History navigation disabled
+                tty_history_up(tty);
                 return 0;
             case US_ARROW_DOWN:
-                // History navigation disabled
+                tty_history_down(tty);
                 return 0;
         }
         return 0;
@@ -119,14 +193,10 @@ int tty_handle_key(TTY *tty, u8 scancode, int is_extended) {
     switch (scancode) {
         case US_ENTER:
             vga_putchar('\n');
-            // Add to history if not empty
-            if (tty->buffer_pos > 0) {
-                u32 hist_idx = tty->history_count % TTY_HISTORY_SIZE;
-                strcpy(tty->history[hist_idx], tty->buffer);
-                if (tty->history_count < TTY_HISTORY_SIZE) {
-                    tty->history_count++;
-                }
-            }
+            tty_add_history(tty);
+            tty->history_pos = 0;
+            tty->history_saved_valid = 0;
+            tty->history_saved[0] = '\0';
             return 1; // Line ready
             
         case US_BACKSPACE:

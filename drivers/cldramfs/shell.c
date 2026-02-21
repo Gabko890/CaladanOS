@@ -204,9 +204,9 @@ static void parse_two_args(const char *cmd, char *arg1, char *arg2) {
 int cldramfs_shell_process_command(const char *command_line) {
     if (!command_line || !*command_line) return 0;
     
-    char line[256];
-    strncpy(line, command_line, 255);
-    line[255] = '\0';
+    char line[TTY_BUFFER_SIZE];
+    strncpy(line, command_line, TTY_BUFFER_SIZE - 1);
+    line[TTY_BUFFER_SIZE - 1] = '\0';
     
     // Remove trailing whitespace
     u32 len = strlen(line);

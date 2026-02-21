@@ -3,8 +3,8 @@
 
 #include <cldtypes.h>
 
-#define TTY_BUFFER_SIZE 256
-#define TTY_HISTORY_SIZE 10
+#define TTY_BUFFER_SIZE 512
+#define TTY_HISTORY_SIZE 16
 
 typedef struct {
     char buffer[TTY_BUFFER_SIZE];
@@ -13,6 +13,8 @@ typedef struct {
     char history[TTY_HISTORY_SIZE][TTY_BUFFER_SIZE];
     u32 history_count;
     u32 history_pos;
+    char history_saved[TTY_BUFFER_SIZE];
+    int history_saved_valid;
     int escape_seq;
     u8 escape_buffer[8];
     u32 escape_pos;
