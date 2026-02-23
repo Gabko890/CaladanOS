@@ -355,8 +355,8 @@ void kernel_main(volatile u32 magic, u32 mb2_info) {
     
     // Try to load ramfs from multiboot modules
     if (load_ramfs_from_modules(mb2_info) == 0) {
-        // Load PSF font for framebuffer console (if framebuffer present)
-        (void)fb_console_load_psf_from_ramfs("/fonts/Lat15-Terminus16.psf");
+        // Load configured PSF fonts for framebuffer console and GUI text.
+        (void)fb_load_fonts_from_config("/etc/fonts.lua");
         // ELF loader testing disabled during boot - use shell instead
         vga_printf("ELF loader ready - test with 'exec' command in shell\n");
         

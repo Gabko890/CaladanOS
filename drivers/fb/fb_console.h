@@ -23,9 +23,11 @@ void fb_console_clear_line(int y, u8 vga_attr);
 void fb_console_clear_to_eol(int x, int y, u8 vga_attr);
 void fb_console_get_size(int* out_cols, int* out_rows);
 
-// Optional: load PSF font from ramfs path (e.g., "/fonts/Lat15-Terminus16.psf").
+// Optional: load PSF1/PSF2 font from ramfs path (e.g., "/usr/fonts/Lat15-Terminus16.psf").
 // Requires cldramfs to be initialized and data loaded. Returns 1 on success.
 int fb_console_load_psf_from_ramfs(const char* path);
+int fb_gui_load_psf_from_ramfs(const char* path);
+int fb_load_fonts_from_config(const char* path);
 
 // Minimal RGB drawing helpers for simple GUI usage
 void fb_get_resolution(u32* out_w, u32* out_h);
@@ -39,6 +41,7 @@ void fb_blit(u32 x, u32 y, u32 w, u32 h, const u8* src);
 
 // Text/glyph helpers for windowed terminals
 int  fb_font_get_cell_size(int* out_w, int* out_h);
+int  fb_console_font_get_cell_size(int* out_w, int* out_h);
 void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr);
 // Draw char using only foreground; background remains untouched. fg_index is 0-15 VGA color index.
 void fb_draw_char_px_nobg(u32 px, u32 py, char c, u8 fg_index);

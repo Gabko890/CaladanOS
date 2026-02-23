@@ -43,16 +43,25 @@ static int ansi_buffer_pos = 0;
 static u8* fb_cur_save = NULL;
 static u32 fb_cur_sx = 0, fb_cur_sy = 0, fb_cur_w = 0, fb_cur_h = 0;
 static int fb_cur_valid = 0;
-static int fb_cw = 8, fb_ch = 16;
+static int fb_cw = 0, fb_ch = 0;
 static u8 fb_bpp = 0;
+
+static void fb_softcursor_undraw(void);
 
 static void fb_softcursor_prepare(void) {
     if (!fb_console_present()) return;
     if (!fb_bpp) fb_bpp = fb_get_bytespp();
-    if (fb_cw <= 0 || fb_ch <= 0) {
-        int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
-        fb_cw = cw; fb_ch = ch;
+    int cw = fb_cw, ch = fb_ch;
+    if (fb_console_font_get_cell_size(&cw, &ch) && (cw != fb_cw || ch != fb_ch)) {
+        fb_softcursor_undraw();
+        if (fb_cur_save) {
+            kfree(fb_cur_save);
+            fb_cur_save = NULL;
+        }
+        fb_cw = cw;
+        fb_ch = ch;
     }
+    if (fb_cw <= 0 || fb_ch <= 0) return;
     if (!fb_cur_save) {
         // caret height: max(2, cell_h/6)
         u32 caret_h = (u32)(fb_ch / 6);
