@@ -43,6 +43,7 @@ void fb_blit(u32 x, u32 y, u32 w, u32 h, const u8* src);
 int  fb_font_get_cell_size(int* out_w, int* out_h);
 int  fb_console_font_get_cell_size(int* out_w, int* out_h);
 void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr);
+void fb_draw_char_px_scaled(u32 px, u32 py, char c, u8 vga_attr, int scale);
 // Draw char using only foreground; background remains untouched. fg_index is 0-15 VGA color index.
 void fb_draw_char_px_nobg(u32 px, u32 py, char c, u8 fg_index);
 void fb_fill_rect_attr(u32 x, u32 y, u32 w, u32 h, u8 vga_attr);

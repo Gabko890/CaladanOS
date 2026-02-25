@@ -489,6 +489,38 @@ void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr) {
     }
 }
 
+void fb_draw_char_px_scaled(u32 px, u32 py, char c, u8 vga_attr, int scale) {
+    const psf_font_t* font = gui_font();
+    if (!font || !g_has_fb) return;
+    if (scale <= 1) {
+        fb_draw_char_px(px, py, c, vga_attr);
+        return;
+    }
+    if (scale > 4) scale = 4;
+
+    const u8* fg = PALETTE[fg_idx(vga_attr) & 0x0F];
+    const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
+    u32 idx = (u32)(u8)c;
+    if (idx >= (u32)font->glyph_count) idx = (u32)'?';
+    if (idx >= (u32)font->glyph_count) idx = 0;
+    const u8* glyph = font->glyphs + idx * (u32)font->glyph_size;
+
+    for (int y2 = 0; y2 < font->cell_h; y2++) {
+        for (int x2 = 0; x2 < font->cell_w; x2++) {
+            const u8* rgb = glyph_pixel_is_set(font, glyph, x2, y2) ? fg : bg;
+            u32 sx0 = px + (u32)(x2 * scale);
+            u32 sy0 = py + (u32)(y2 * scale);
+            for (int sy = 0; sy < scale; sy++) {
+                if (sy0 + (u32)sy >= g_fb.fb_height) break;
+                for (int sx = 0; sx < scale; sx++) {
+                    if (sx0 + (u32)sx >= g_fb.fb_width) break;
+                    set_pixel(sx0 + (u32)sx, sy0 + (u32)sy, rgb);
+                }
+            }
+        }
+    }
+}
+
 void fb_draw_char_px_nobg(u32 px, u32 py, char c, u8 fg_index) {
     const psf_font_t* font = gui_font();
     if (!font || !g_has_fb) return;
