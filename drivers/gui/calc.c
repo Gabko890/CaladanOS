@@ -18,7 +18,6 @@ static const u8 COL_DISP[3]  = { 0xF8, 0xF8, 0xF8 };
 static const u8 COL_BORD[3]  = { 0x77, 0x77, 0x77 };
 static const u8 COL_BTN[3]   = { 0xCC, 0xCC, 0xCC };
 static const u8 COL_BTN_OP[3]= { 0xB8, 0xB8, 0xB8 };
-static const u8 COL_TXT[3]   = { 0x00, 0x00, 0x00 };
 
 // Fixed-point config and calculator state
 static const long long SCALE = 1000000LL; // 6 decimals
@@ -123,7 +122,6 @@ static int scaled_to_str(long long sv, char* out, u32 max) {
     long long abs_v = (sv < 0) ? -sv : sv;
     long long int_part = abs_v / SCALE;
     long long frac_part = abs_v % SCALE;
-    char tmpi[32];
     int pos = 0;
     if (sv < 0) { if (pos + 1 < (int)max) out[pos++] = '-'; }
     // integer part
@@ -333,6 +331,12 @@ void gui_calc_init(u32 px, u32 py, u32 pw, u32 ph) {
 
 void gui_calc_move(u32 px, u32 py) {
     c_px = px; c_py = py;
+}
+
+void gui_calc_resize(u32 pw, u32 ph) {
+    c_pw = pw;
+    c_ph = ph;
+    gui_calc_render_all();
 }
 
 void gui_calc_render_all(void) {

@@ -453,6 +453,12 @@ void gui_editor_move(u32 px, u32 py) {
     text_x0 = e_x + (u32)(EDITOR_LINE_NUMBER_COLS * cell_w);
 }
 
+void gui_editor_resize(u32 pw, u32 ph) {
+    e_w = pw;
+    e_h = ph;
+    editor_rebuild_grid_for_zoom(editor_zoom);
+}
+
 void gui_editor_render_all(void) { editor_render_all(); }
 
 static void editor_put_char(char c) {

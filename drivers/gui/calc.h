@@ -7,6 +7,8 @@
 void gui_calc_init(u32 px, u32 py, u32 pw, u32 ph);
 // Move calculator viewport to new pixel position (keeps content)
 void gui_calc_move(u32 px, u32 py);
+// Resize calculator viewport and relayout buttons
+void gui_calc_resize(u32 pw, u32 ph);
 // Redraw full calculator content
 void gui_calc_render_all(void);
 // Handle mouse click; returns 1 if state changed and needs rerender
@@ -17,4 +19,3 @@ void gui_calc_handle_key(u8 scancode, int is_extended, int is_pressed);
 void gui_calc_free(void);
 
 #endif // GUI_CALC_H
-

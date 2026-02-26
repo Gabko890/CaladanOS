@@ -31,6 +31,7 @@ void gui_bar_clear_menus(void);
 int  gui_bar_register_window(const char* title); // returns window id or -1
 void gui_bar_unregister_window(int id);
 void gui_bar_set_active_window(int id);
+void gui_bar_update_window_title(int id, const char* title);
 
 // Constants
 #define GUI_BAR_HEIGHT 24

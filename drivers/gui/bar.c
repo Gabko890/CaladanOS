@@ -32,8 +32,6 @@ static u32 menu_rect_x = 0, menu_rect_y = 0, menu_rect_w = 0, menu_rect_h = 0;
 static const u8 BAR_BG[3]    = { 0x25, 0x25, 0x28 };
 static const u8 BAR_ACC[3]   = { 0x66, 0x66, 0x6A }; // stylish gray accent
 static const u8 SEP_COL[3]   = { 0x40, 0x40, 0x44 };
-static const u8 TXT_COL[3]   = { 0xEE, 0xEE, 0xEE };
-static const u8 TXT_DIM[3]   = { 0xAA, 0xAA, 0xAA };
 
 static void draw_rect_rgb(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
     fb_fill_rect_rgb(x, y, w, h, rgb[0], rgb[1], rgb[2]);
@@ -215,6 +213,20 @@ void gui_bar_set_active_window(int id) {
     for (int i = 0; i < window_count; i++) windows[i].active = (windows[i].id == id);
 }
 
+void gui_bar_update_window_title(int id, const char* title) {
+    if (!title) return;
+    for (int i = 0; i < window_count; i++) {
+        if (windows[i].id != id) continue;
+        size_t len = strlen(title);
+        char* s = (char*)kmalloc(len + 1);
+        if (!s) return;
+        strcpy(s, title);
+        if (windows[i].title) kfree(windows[i].title);
+        windows[i].title = s;
+        return;
+    }
+}
+
 int gui_bar_on_click(u32 x, u32 y, int* out_window_id) {
     // Click on menu button toggles dropdown
     if (y < GUI_BAR_HEIGHT) {
@@ -342,6 +354,9 @@ int gui_bar_is_menu_open(void) { return menu_open; }
 
 int gui_bar_get_current_dropdown_rect(u32* x, u32* y, u32* w, u32* h) {
     if (!menu_open || menu_rect_w == 0 || menu_rect_h == 0) return 0;
-    if (x) *x = menu_rect_x; if (y) *y = menu_rect_y; if (w) *w = menu_rect_w; if (h) *h = menu_rect_h;
+    if (x) *x = menu_rect_x;
+    if (y) *y = menu_rect_y;
+    if (w) *w = menu_rect_w;
+    if (h) *h = menu_rect_h;
     return 1;
 }

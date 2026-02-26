@@ -319,6 +319,51 @@ void gui_term_move(u32 px, u32 py) {
     t_x = px; t_y = py;
 }
 
+void gui_term_resize(u32 pw, u32 ph) {
+    int old_cols = cols;
+    int old_rows = rows;
+    TermCell *old_cells = cells;
+
+    t_w = pw;
+    t_h = ph;
+    int ok = fb_font_get_cell_size(&cell_w, &cell_h);
+    if (!ok || cell_w <= 0 || cell_h <= 0) { cell_w = 8; cell_h = 16; }
+    cols = (int)(pw / (u32)cell_w);
+    rows = (int)(ph / (u32)cell_h);
+    if (cols <= 0) cols = 1;
+    if (rows <= 0) rows = 1;
+
+    cells = (TermCell*)kmalloc((size_t)(rows * cols * (int)sizeof(TermCell)));
+    if (!cells) {
+        cells = old_cells;
+        cols = old_cols;
+        rows = old_rows;
+        return;
+    }
+
+    for (int i = 0; i < rows * cols; i++) {
+        cells[i].ch = ' ';
+        cells[i].attr = cur_attr;
+    }
+    if (old_cells) {
+        int copy_rows = old_rows < rows ? old_rows : rows;
+        int copy_cols = old_cols < cols ? old_cols : cols;
+        for (int y = 0; y < copy_rows; y++) {
+            for (int x = 0; x < copy_cols; x++) {
+                cells[y * cols + x] = old_cells[y * old_cols + x];
+            }
+        }
+        kfree(old_cells);
+    }
+    if (cur_x >= cols) cur_x = cols - 1;
+    if (cur_y >= rows) cur_y = rows - 1;
+    if (cur_x < 0) cur_x = 0;
+    if (cur_y < 0) cur_y = 0;
+    caret_drawn = 0;
+    fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
+    term_render_all();
+}
+
 void gui_term_render_all(void) {
     term_render_all();
 }

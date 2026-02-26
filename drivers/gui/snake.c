@@ -259,6 +259,13 @@ void gui_snake_move(u32 px, u32 py) {
     s_px = px; s_py = py;
 }
 
+void gui_snake_resize(u32 pw, u32 ph) {
+    u32 px = s_px;
+    u32 py = s_py;
+    gui_snake_free();
+    gui_snake_init(px, py, pw, ph);
+}
+
 void gui_snake_render_all(void) { render_all(); }
 
 void gui_snake_handle_key(u8 sc, int is_extended, int is_pressed) {

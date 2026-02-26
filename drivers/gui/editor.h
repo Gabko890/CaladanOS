@@ -7,6 +7,8 @@
 void gui_editor_init(u32 px, u32 py, u32 pw, u32 ph);
 // Move editor viewport to new pixel position (keeps content)
 void gui_editor_move(u32 px, u32 py);
+// Resize editor viewport (keeps document content)
+void gui_editor_resize(u32 pw, u32 ph);
 // Redraw full editor content
 void gui_editor_render_all(void);
 // Handle a key event (press/release)
