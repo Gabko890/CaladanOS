@@ -23,7 +23,7 @@ void fb_console_clear_line(int y, u8 vga_attr);
 void fb_console_clear_to_eol(int x, int y, u8 vga_attr);
 void fb_console_get_size(int* out_cols, int* out_rows);
 
-// Optional: load PSF1/PSF2 font from ramfs path (e.g., "/usr/fonts/Lat15-Terminus16.psf").
+// Optional: load PSF1/PSF2 font from ramfs path (e.g., "/usr/share/fonts/Lat15-Terminus16.psf").
 // Requires cldramfs to be initialized and data loaded. Returns 1 on success.
 int fb_console_load_psf_from_ramfs(const char* path);
 int fb_gui_load_psf_from_ramfs(const char* path);

@@ -424,15 +424,15 @@ int cldramfs_shell_process_command(const char *command_line) {
         return 1;
     }
     else {
-        // Attempt to run a Lua utility from /usr/share/<cmd>.lua
+        // Attempt to run a Lua utility from /usr/bin/<cmd>.lua
         // Extract command name (first token)
         char name[64];
         u32 i=0; while (cmd[i] && cmd[i] != ' ' && cmd[i] != '\t' && i < sizeof(name)-1) { name[i]=cmd[i]; i++; }
         name[i]='\0';
         if (name[0] != '\0') {
-            // Build /usr/share/<name>.lua
+            // Build /usr/bin/<name>.lua
             char fullpath[128];
-            strncpy(fullpath, "/usr/share/", sizeof(fullpath)-1); fullpath[sizeof(fullpath)-1] = '\0';
+            strncpy(fullpath, "/usr/bin/", sizeof(fullpath)-1); fullpath[sizeof(fullpath)-1] = '\0';
             strncat(fullpath, name, sizeof(fullpath)-strlen(fullpath)-1);
             strncat(fullpath, ".lua", sizeof(fullpath)-strlen(fullpath)-1);
 

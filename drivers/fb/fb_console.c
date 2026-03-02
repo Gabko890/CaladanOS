@@ -294,7 +294,7 @@ static int read_lua_assignment(const char* data, u32 size, const char* key, char
 int fb_load_fonts_from_config(const char* path) {
     char console_path[256];
     char gui_path[256];
-    const char* default_font = "/usr/fonts/Lat15-Terminus16.psf";
+    const char* default_font = "/usr/share/fonts/Lat15-Terminus16.psf";
 
     strcpy(console_path, default_font);
     strcpy(gui_path, default_font);

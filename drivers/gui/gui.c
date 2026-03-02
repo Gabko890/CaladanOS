@@ -469,9 +469,7 @@ void gui_start(void) {
     }
 
     vga_clear_screen();
-    if (!gui_wallpaper_load("/wallpapers/default.bmp")) {
-        (void)gui_wallpaper_load("/wallpapers/cldwallapper.bmp");
-    }
+    (void)gui_wallpaper_load("/usr/share/wallpapers/default.bmp");
     gui_window_manager_init();
     gui_bar_init();
     gui_render_desktop();

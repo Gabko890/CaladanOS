@@ -3,7 +3,7 @@
 
 #include <cldtypes.h>
 
-// Load and prepare wallpaper from RAMFS BMP path (e.g., "/wallpapers/xyz.bmp").
+// Load and prepare wallpaper from RAMFS BMP path (e.g., "/usr/share/wallpapers/xyz.bmp").
 // Returns 1 on success, 0 on failure.
 int gui_wallpaper_load(const char* path);
 
@@ -17,4 +17,3 @@ void gui_wallpaper_draw_fullscreen(void);
 void gui_wallpaper_redraw_rect(u32 x, u32 y, u32 w, u32 h);
 
 #endif // GUI_WALLPAPER_H
-

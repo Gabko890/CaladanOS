@@ -266,9 +266,9 @@ build-x86_64-internal: $(OBJECTS)
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ramfs archive from: $(RAMFS_DIR)"
 	@# Ensure optional fonts and assets exist in ramfs
 	@mkdir -p $(RAMFS_DIR)/etc
-	@mkdir -p $(RAMFS_DIR)/usr/fonts
+	@mkdir -p $(RAMFS_DIR)/usr/share/fonts
 	@if [ -f Example/src/drivers/video/Lat15-Terminus16.psf ]; then \
-		cp Example/src/drivers/video/Lat15-Terminus16.psf $(RAMFS_DIR)/usr/fonts/Lat15-Terminus16.psf; \
+		cp Example/src/drivers/video/Lat15-Terminus16.psf $(RAMFS_DIR)/usr/share/fonts/Lat15-Terminus16.psf; \
 	fi
 	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$(ISO_DIR)/boot/ramfs.cpio)
 	@cpio -itv < $(ISO_DIR)/boot/ramfs.cpio
