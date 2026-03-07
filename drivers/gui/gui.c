@@ -3,8 +3,11 @@
 #include <ps2.h>
 #include <vgaio.h>
 #include <shell_control.h>
+#include <cldramfs/cldramfs.h>
 #include <cldramfs/tty.h>
 #include <kmalloc.h>
+#include <lua_vm.h>
+#include <string.h>
 #include "gui.h"
 #include "term.h"
 #include "editor.h"
@@ -19,6 +22,8 @@
 #define GUI_FRAME_TITLE_H   24
 #define GUI_FRAME_PAD_X     6
 #define GUI_FRAME_PAD_Y     10
+#define GUI_CONFIG_PATH     "/etc/gui/gui.lua"
+#define GUI_DEFAULT_WALLPAPER "/usr/share/wallpapers/default.bmp"
 
 typedef enum {
     APP_TERMINAL = 0,
@@ -48,10 +53,168 @@ static u32 cursor_save_w = 0, cursor_save_h = 0;
 static int cursor_saved = 0;
 static u8 fb_bpp = 0;
 
-static const u8 COL_BG[3] = { 0x20, 0x20, 0x20 };
+static u8 gui_bg[3] = { 0x20, 0x20, 0x20 };
+static char gui_config_wallpaper[256] = GUI_DEFAULT_WALLPAPER;
+static char gui_active_wallpaper[256] = GUI_DEFAULT_WALLPAPER;
+static int gui_temp_wallpaper = 0;
+static int gui_config_loaded = 0;
 
 static void gui_stop(void);
 static void gui_key_handler(u8 scancode, int is_extended, int is_pressed);
+
+static void copy_path(char *dst, const char *src) {
+    if (!dst || !src) return;
+    strncpy(dst, src, 255);
+    dst[255] = '\0';
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int parse_color(const char *s, u8 rgb[3]) {
+    if (!s || !rgb) return 0;
+    if (s[0] == '#') s++;
+    for (int i = 0; i < 6; i++) {
+        if (hex_nibble(s[i]) < 0) return 0;
+    }
+    if (s[6] != '\0') return 0;
+    int r1 = hex_nibble(s[0]), r2 = hex_nibble(s[1]);
+    int g1 = hex_nibble(s[2]), g2 = hex_nibble(s[3]);
+    int b1 = hex_nibble(s[4]), b2 = hex_nibble(s[5]);
+    rgb[0] = (u8)((r1 << 4) | r2);
+    rgb[1] = (u8)((g1 << 4) | g2);
+    rgb[2] = (u8)((b1 << 4) | b2);
+    return 1;
+}
+
+static int ramfs_file_exists(const char *path) {
+    Node *f = cldramfs_resolve_path_file(path, 0);
+    return f && f->type == FILE_NODE && f->content;
+}
+
+static void gui_load_style(void) {
+    gui_window_style_t window_style = {
+        { 0xCC, 0xCC, 0xCC },
+        { 0x60, 0x60, 0x64 },
+        { 0x48, 0x64, 0x7A },
+        { 0x00, 0x00, 0x00 },
+        { 0x40, 0x40, 0x44 },
+        { 0x33, 0x33, 0x36 },
+        { 0xCC, 0x33, 0x33 },
+        { 0xCC, 0xAA, 0x33 },
+        { 0xFF, 0xFF, 0xFF },
+        { 0x00, 0x00, 0x00 },
+    };
+    gui_bar_style_t bar_style = {
+        { 0x25, 0x25, 0x28 },
+        { 0x66, 0x66, 0x6A },
+        { 0x40, 0x40, 0x44 },
+    };
+    gui_bg[0] = 0x20; gui_bg[1] = 0x20; gui_bg[2] = 0x20;
+
+    char background[16] = "";
+    char window[16] = "";
+    char title[16] = "";
+    char active_title[16] = "";
+    char border[16] = "";
+    char menu[16] = "";
+    char popup[16] = "";
+    char close_button[16] = "";
+    char minimize_button[16] = "";
+    char outline_light[16] = "";
+    char outline_dark[16] = "";
+    char bar_background[16] = "";
+    char bar_active[16] = "";
+    char bar_separator[16] = "";
+
+    const char *keys[] = {
+        "background",
+        "window",
+        "title",
+        "active_title",
+        "border",
+        "menu",
+        "popup",
+        "close_button",
+        "minimize_button",
+        "outline_light",
+        "outline_dark",
+        "bar_background",
+        "bar_active",
+        "bar_separator",
+    };
+    char *values[] = {
+        background,
+        window,
+        title,
+        active_title,
+        border,
+        menu,
+        popup,
+        close_button,
+        minimize_button,
+        outline_light,
+        outline_dark,
+        bar_background,
+        bar_active,
+        bar_separator,
+    };
+    const u32 sizes[] = {
+        sizeof(background),
+        sizeof(window),
+        sizeof(title),
+        sizeof(active_title),
+        sizeof(border),
+        sizeof(menu),
+        sizeof(popup),
+        sizeof(close_button),
+        sizeof(minimize_button),
+        sizeof(outline_light),
+        sizeof(outline_dark),
+        sizeof(bar_background),
+        sizeof(bar_active),
+        sizeof(bar_separator),
+    };
+
+    (void)cld_luavm_read_config_strings(GUI_CONFIG_PATH, keys, values, sizes, 14);
+    (void)parse_color(background, gui_bg);
+    (void)parse_color(window, window_style.window);
+    (void)parse_color(title, window_style.title);
+    (void)parse_color(active_title, window_style.active_title);
+    (void)parse_color(border, window_style.border);
+    (void)parse_color(menu, window_style.menu);
+    (void)parse_color(popup, window_style.popup);
+    (void)parse_color(close_button, window_style.close_button);
+    (void)parse_color(minimize_button, window_style.minimize_button);
+    (void)parse_color(outline_light, window_style.outline_light);
+    (void)parse_color(outline_dark, window_style.outline_dark);
+    (void)parse_color(bar_background, bar_style.background);
+    (void)parse_color(bar_active, bar_style.active);
+    (void)parse_color(bar_separator, bar_style.separator);
+
+    gui_window_set_style(&window_style);
+    gui_bar_set_style(&bar_style);
+}
+
+static int gui_load_config(int preserve_temp_wallpaper) {
+    copy_path(gui_config_wallpaper, GUI_DEFAULT_WALLPAPER);
+
+    const char *keys[] = { "wallpaper" };
+    char *values[] = { gui_config_wallpaper };
+    const u32 sizes[] = { sizeof(gui_config_wallpaper) };
+    int found = cld_luavm_read_config_strings(GUI_CONFIG_PATH, keys, values, sizes, 1);
+    if (!preserve_temp_wallpaper) {
+        copy_path(gui_active_wallpaper, gui_config_wallpaper);
+        gui_temp_wallpaper = 0;
+    }
+    gui_load_style();
+    gui_config_loaded = 1;
+    return found > 0 || ramfs_file_exists(GUI_CONFIG_PATH);
+}
 
 static void draw_rect_rgb(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
     fb_fill_rect_rgb(x, y, w, h, rgb[0], rgb[1], rgb[2]);
@@ -59,7 +222,7 @@ static void draw_rect_rgb(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
 
 static void gui_clear_all(void) {
     if (gui_wallpaper_is_loaded()) gui_wallpaper_draw_fullscreen();
-    else draw_rect_rgb(0, 0, scr_w, scr_h, COL_BG);
+    else draw_rect_rgb(0, 0, scr_w, scr_h, gui_bg);
 }
 
 static void gui_clear_workspace(void) {
@@ -67,7 +230,7 @@ static void gui_clear_workspace(void) {
     u32 y = GUI_BAR_HEIGHT;
     u32 h = scr_h - GUI_BAR_HEIGHT;
     if (gui_wallpaper_is_loaded()) gui_wallpaper_redraw_rect(0, y, scr_w, h);
-    else draw_rect_rgb(0, y, scr_w, h, COL_BG);
+    else draw_rect_rgb(0, y, scr_w, h, gui_bg);
 }
 
 static void gui_render_desktop(void) {
@@ -408,6 +571,39 @@ void gui_restore_input(void) {
     if (gui_active) ps2_set_key_callback(gui_key_handler);
 }
 
+int gui_reload_config(void) {
+    int ok = gui_load_config(0);
+    if (gui_active) {
+        (void)gui_wallpaper_load(gui_active_wallpaper);
+        gui_cursor_undraw();
+        gui_render_desktop();
+        gui_cursor_draw(cursor_x, cursor_y);
+    }
+    return ok;
+}
+
+int gui_reload_wallpaper(void) {
+    if (!gui_config_loaded) (void)gui_load_config(gui_temp_wallpaper);
+    if (!gui_active) return ramfs_file_exists(gui_active_wallpaper);
+    int ok = gui_wallpaper_load(gui_active_wallpaper);
+    gui_cursor_undraw();
+    gui_render_desktop();
+    gui_cursor_draw(cursor_x, cursor_y);
+    return ok;
+}
+
+int gui_change_wallpaper(const char *path) {
+    if (!path || !*path || !ramfs_file_exists(path)) return 0;
+    copy_path(gui_active_wallpaper, path);
+    gui_temp_wallpaper = 1;
+    if (!gui_active) return 1;
+    int ok = gui_wallpaper_load(gui_active_wallpaper);
+    gui_cursor_undraw();
+    gui_render_desktop();
+    gui_cursor_draw(cursor_x, cursor_y);
+    return ok;
+}
+
 static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
     if (scancode == 0x2A || scancode == 0x36) key_shift = is_pressed ? 1 : 0;
     if (!gui_active || !is_pressed) return;
@@ -441,6 +637,7 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
 }
 
 void gui_start(void) {
+    if (gui_active) return;
     if (!fb_console_present()) return;
     fb_get_resolution(&scr_w, &scr_h);
     if (!scr_w || !scr_h) return;
@@ -469,7 +666,8 @@ void gui_start(void) {
     }
 
     vga_clear_screen();
-    (void)gui_wallpaper_load("/usr/share/wallpapers/default.bmp");
+    (void)gui_load_config(0);
+    (void)gui_wallpaper_load(gui_active_wallpaper);
     gui_window_manager_init();
     gui_bar_init();
     gui_render_desktop();
@@ -496,4 +694,6 @@ static void gui_stop(void) {
         cursor_save = 0;
         cursor_saved = 0;
     }
+    gui_temp_wallpaper = 0;
+    copy_path(gui_active_wallpaper, gui_config_wallpaper);
 }

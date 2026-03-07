@@ -1,0 +1,16 @@
+background = "#202020"
+
+bar_background = "#252528"
+bar_active = "#66666A"
+bar_separator = "#404044"
+
+window = "#CCCCCC"
+title = "#606064"
+active_title = "#48647A"
+border = "#000000"
+menu = "#404044"
+popup = "#333336"
+close_button = "#CC3333"
+minimize_button = "#CCAA33"
+outline_light = "#FFFFFF"
+outline_dark = "#000000"

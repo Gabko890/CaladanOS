@@ -84,6 +84,15 @@ static int shell_line_is_command(const char *line, const char *expected) {
            cmd[expected_len] == '>';
 }
 
+static void print_guictl_help(void) {
+    vga_printf("Usage:\n");
+    vga_printf("  guictl start\n");
+    vga_printf("  guictl reload config\n");
+    vga_printf("  guictl reload wallpaper\n");
+    vga_printf("  guictl change wallpaper <path>\n");
+    vga_printf("  guictl help\n");
+}
+
 static int shell_parse_redirection(char *cmd, char **filename, int *append) {
     *filename = NULL;
     *append = 0;
@@ -382,7 +391,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
         vga_printf("  lua <script.lua>    - Run Lua script\n");
         vga_printf("  sysinfo             - Show kernel build information\n");
-        vga_printf("  startgui            - Start GUI (Menu → Exit GUI)\n");
+        vga_printf("  guictl <command>    - Manage GUI (guictl help)\n");
         vga_printf("  snake               - Open Snake in GUI\n");
         vga_printf("  cmd > file          - Redirect command output to file\n");
         vga_printf("  cmd >> file         - Append command output to file\n");
@@ -400,12 +409,26 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("Git commit:     %s\n", sysinfo.git_commit);
         vga_printf("Build datetime: %s\n", sysinfo.build_datetime);
     }
-    else if (strcmp(cmd, "startgui") == 0) {
-        if (!fb_console_present()) {
-            vga_printf("GUI requires framebuffer mode.\n");
+    else if ((strncmp(cmd, "guictl", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ' || cmd[6] == '\t')) ||
+             (strncmp(cmd, "guistl", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ' || cmd[6] == '\t'))) {
+        char *arg = find_arg(cmd);
+        if (!arg || !*arg || strcmp(arg, "help") == 0) {
+            print_guictl_help();
+        } else if (strcmp(arg, "start") == 0) {
+            if (!fb_console_present()) vga_printf("GUI requires framebuffer mode.\n");
+            else gui_start();
+        } else if (strcmp(arg, "reload config") == 0) {
+            if (gui_reload_config()) vga_printf("guictl: config reloaded\n");
+            else vga_printf("guictl: config missing or invalid\n");
+        } else if (strcmp(arg, "reload wallpaper") == 0) {
+            if (gui_reload_wallpaper()) vga_printf("guictl: wallpaper reloaded\n");
+            else vga_printf("guictl: wallpaper load failed\n");
+        } else if (strncmp(arg, "change wallpaper", 16) == 0 && (arg[16] == ' ' || arg[16] == '\t')) {
+            char *path = skip_whitespace(arg + 16);
+            if (gui_change_wallpaper(path)) vga_printf("guictl: wallpaper changed for this session\n");
+            else vga_printf("guictl: cannot load wallpaper '%s'\n", path);
         } else {
-            // Start GUI terminal (shell remains active; output redirected)
-            gui_start();
+            print_guictl_help();
         }
     }
     else if (strcmp(cmd, "snake") == 0) {

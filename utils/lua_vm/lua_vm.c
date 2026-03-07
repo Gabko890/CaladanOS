@@ -343,6 +343,23 @@ static void* l_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
     return krealloc(ptr, nsize);
 }
 
+static int l_config_include(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    if (!path || !*path) return 0;
+    Node *file = cldramfs_resolve_path_file(path, 0);
+    if (!file || file->type != FILE_NODE || !file->content) return 0;
+    chunk_t ck = { .buf = file->content, .len = file->content_size, .used = 0 };
+    if (lua_load(L, lreader, &ck, path, NULL) != LUA_OK) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    return 0;
+}
+
 int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) {
     if (!path || !*path) { vga_printf("lua: missing script path\n"); return 1; }
     Node *file = cldramfs_resolve_path_file(path, 0);
@@ -393,6 +410,47 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     }
     lua_close(L);
     return 0;
+}
+
+int cld_luavm_read_config_strings(const char *path, const char **keys, char **out, const u32 *out_sizes, int count) {
+    if (!path || !*path || !keys || !out || !out_sizes || count <= 0) return 0;
+    Node *file = cldramfs_resolve_path_file(path, 0);
+    if (!file || file->type != FILE_NODE || !file->content) return 0;
+
+    vm_args_t args = { .argc = 0, .argv = 0 };
+    lua_State *L = lua_newstate(l_alloc, &args, 0x12345678u);
+    if (!L) return 0;
+
+    lua_pushcfunction(L, l_config_include); lua_setglobal(L, "include");
+    lua_pushcfunction(L, l_config_include); lua_setglobal(L, "dofile");
+
+    chunk_t ck = { .buf = file->content, .len = file->content_size, .used = 0 };
+    if (lua_load(L, lreader, &ck, path, NULL) != LUA_OK) {
+        lua_close(L);
+        return 0;
+    }
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        lua_close(L);
+        return 0;
+    }
+
+    int found = 0;
+    for (int i = 0; i < count; i++) {
+        if (!keys[i] || !out[i] || out_sizes[i] == 0) continue;
+        lua_getglobal(L, keys[i]);
+        if (lua_isstring(L, -1)) {
+            const char *value = lua_tostring(L, -1);
+            if (value) {
+                strncpy(out[i], value, out_sizes[i] - 1);
+                out[i][out_sizes[i] - 1] = '\0';
+                found++;
+            }
+        }
+        lua_pop(L, 1);
+    }
+
+    lua_close(L);
+    return found;
 }
 
 typedef struct { char *path; int argc; char **argv; int from_gui; } lua_task_args_t;

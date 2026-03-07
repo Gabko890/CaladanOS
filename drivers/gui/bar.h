@@ -4,9 +4,15 @@
 #include <cldtypes.h>
 
 // Simple top bar (waybar-like) API
+typedef struct {
+    u8 background[3];
+    u8 active[3];
+    u8 separator[3];
+} gui_bar_style_t;
 
 // Initialize (idempotent) and render the bar
 void gui_bar_init(void);
+void gui_bar_set_style(const gui_bar_style_t *style);
 void gui_bar_render(void);
 // Handle a mouse click at pixel (x,y). Returns action code:
 // 0 = none, 1 = open terminal, 2 = focus window id,

@@ -41,14 +41,18 @@ static u32 drag_preview_y = 0;
 static u32 drag_preview_w = 0;
 static u32 drag_preview_h = 0;
 
-static const u8 COL_WIN[3]     = { 0xCC, 0xCC, 0xCC };
-static const u8 COL_TITLE[3]   = { 0x60, 0x60, 0x64 };
-static const u8 COL_ACTIVE[3]  = { 0x48, 0x64, 0x7A };
-static const u8 COL_BORDER[3]  = { 0x00, 0x00, 0x00 };
-static const u8 COL_MENU[3]    = { 0x40, 0x40, 0x44 };
-static const u8 COL_POPUP[3]   = { 0x33, 0x33, 0x36 };
-static const u8 COL_CLOSE[3]   = { 0xCC, 0x33, 0x33 };
-static const u8 COL_MIN[3]     = { 0xCC, 0xAA, 0x33 };
+static gui_window_style_t win_style = {
+    { 0xCC, 0xCC, 0xCC },
+    { 0x60, 0x60, 0x64 },
+    { 0x48, 0x64, 0x7A },
+    { 0x00, 0x00, 0x00 },
+    { 0x40, 0x40, 0x44 },
+    { 0x33, 0x33, 0x36 },
+    { 0xCC, 0x33, 0x33 },
+    { 0xCC, 0xAA, 0x33 },
+    { 0xFF, 0xFF, 0xFF },
+    { 0x00, 0x00, 0x00 },
+};
 
 static void copy_text(char *dst, u32 dst_len, const char *src) {
     if (!dst || dst_len == 0) return;
@@ -76,11 +80,9 @@ static void draw_border(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
 }
 
 static void draw_outline(u32 x, u32 y, u32 w, u32 h) {
-    static const u8 OUTER[3] = { 0xFF, 0xFF, 0xFF };
-    static const u8 INNER[3] = { 0x00, 0x00, 0x00 };
     if (w < 4 || h < 4) return;
-    draw_border(x, y, w, h, OUTER);
-    draw_border(x + 1, y + 1, w - 2, h - 2, INNER);
+    draw_border(x, y, w, h, win_style.outline_light);
+    draw_border(x + 1, y + 1, w - 2, h - 2, win_style.outline_dark);
 }
 
 static u32 text_width(const char *s) {
@@ -166,7 +168,7 @@ static void draw_menu(gui_window_t *win) {
     u32 by = win->y + 3;
     u32 bw = text_width("File") + 12;
     u32 bh = TITLE_H - 6;
-    if (win->menu_open) draw_rect(bx, by, bw, bh, COL_MENU);
+    if (win->menu_open) draw_rect(bx, by, bw, bh, win_style.menu);
     draw_text(bx + 6, win->y + 5, "File", 0x0F);
 
     if (!win->menu_open) return;
@@ -179,7 +181,7 @@ static void draw_menu(gui_window_t *win) {
     if (item_w < 54) item_w = 54;
     u32 ix = bx;
     u32 iy = win->y + TITLE_H + 2;
-    draw_rect(ix, iy, item_w, (u32)win->menu_count * MENU_H, COL_MENU);
+    draw_rect(ix, iy, item_w, (u32)win->menu_count * MENU_H, win_style.menu);
     for (int i = 0; i < win->menu_count; i++) {
         draw_text(ix + 6, iy + (u32)i * MENU_H + 2, win->menu_items[i], 0x0F);
     }
@@ -193,8 +195,8 @@ static void draw_popup(gui_window_t *win) {
     u32 ph = 48;
     u32 px = cx + (cw > pw ? (cw - pw) / 2 : 0);
     u32 py = cy + (ch > ph ? (ch - ph) / 2 : 0);
-    draw_rect(px, py, pw, ph, COL_POPUP);
-    draw_border(px, py, pw, ph, COL_BORDER);
+    draw_rect(px, py, pw, ph, win_style.popup);
+    draw_border(px, py, pw, ph, win_style.border);
     draw_text(px + 8, py + 6, win->popup_title, 0x0F);
     draw_text(px + 8, py + 24, win->popup_buf, 0x0F);
 }
@@ -234,6 +236,11 @@ void gui_window_manager_init(void) {
     active_id = -1;
     drag_mode = DRAG_NONE;
     drag_win = 0;
+}
+
+void gui_window_set_style(const gui_window_style_t *style) {
+    if (!style) return;
+    win_style = *style;
 }
 
 gui_window_t* gui_window_create(const char *title, u32 x, u32 y, u32 w, u32 h, u32 flags, gui_window_callbacks_t cb) {
@@ -461,20 +468,20 @@ void gui_window_restore(gui_window_t *win) {
 
 void gui_window_render_frame(gui_window_t *win) {
     if (!win || !win->used || win->minimized) return;
-    draw_rect(win->x, win->y, win->w, win->h, COL_WIN);
-    draw_border(win->x, win->y, win->w, win->h, COL_BORDER);
-    draw_rect(win->x + BORDER_W, win->y + BORDER_W, win->w - BORDER_W * 2, TITLE_H, win->id == active_id ? COL_ACTIVE : COL_TITLE);
+    draw_rect(win->x, win->y, win->w, win->h, win_style.window);
+    draw_border(win->x, win->y, win->w, win->h, win_style.border);
+    draw_rect(win->x + BORDER_W, win->y + BORDER_W, win->w - BORDER_W * 2, TITLE_H, win->id == active_id ? win_style.active_title : win_style.title);
     draw_menu(win);
     draw_text(title_text_x(win), win->y + 5, win->title, 0x0F);
 
     u32 bx, by, bw, bh;
     if (!(win->flags & GUI_WINDOW_NO_MINIMIZE)) {
         minimize_button_rect(win, &bx, &by, &bw, &bh);
-        draw_rect(bx, by, bw, bh, COL_MIN);
+        draw_rect(bx, by, bw, bh, win_style.minimize_button);
     }
     if (!(win->flags & GUI_WINDOW_NO_CLOSE)) {
         close_button_rect(win, &bx, &by, &bw, &bh);
-        draw_rect(bx, by, bw, bh, COL_CLOSE);
+        draw_rect(bx, by, bw, bh, win_style.close_button);
     }
     if (!(win->flags & GUI_WINDOW_FIXED_SIZE)) {
         u8 grip[3] = { 0x88, 0x88, 0x88 };

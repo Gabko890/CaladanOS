@@ -1,4 +1,5 @@
 #include "viewer.h"
+#include "bmp.h"
 #include <fb/fb_console.h>
 #include <cldramfs/cldramfs.h>
 #include <kmalloc.h>
@@ -6,21 +7,11 @@
 #include <ps2.h>
 #include <cldramfs/tty.h>
 
-// Simple BMP viewer that scales image to fit given region.
-// Supports uncompressed 24bpp and 32bpp BMP (BI_RGB, and 32bpp bitfields).
-
 // Viewer region
 static u32 v_px = 0, v_py = 0, v_pw = 0, v_ph = 0;
 static u8  v_fb_bpp = 0;
 
-// Source BMP metadata (points into ramfs-backed content)
-static const u8* v_img_base = 0; // pointer to BMP start ('B''M')
-static u32 v_img_pix_off = 0;    // pixel array offset
-static u32 v_img_w = 0;          // source width
-static u32 v_img_h = 0;          // source height (absolute value)
-static u16 v_img_bpp = 0;        // bits per pixel in source (24 or 32)
-static u32 v_img_stride = 0;     // bytes per source row (padded to 4 bytes)
-static int v_img_top_down = 0;   // 1 if top-down bitmap
+static gui_bmp_t v_bmp;
 
 // Temporary line buffer (one scanline in framebuffer format)
 static u8* v_linebuf = 0;        // size: v_pw * v_fb_bpp
@@ -45,89 +36,23 @@ static int v_list_count = 0;
 
 static void viewer_clear_list(void) { for (int i = 0; i < v_list_count; i++) { if (v_list_paths[i]) kfree(v_list_paths[i]); if (v_list_labels[i]) kfree(v_list_labels[i]); } v_list_count = 0; }
 
-static inline u32 rd_le32(const u8* p) {
-    return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
-}
-
-static inline u16 rd_le16(const u8* p) {
-    return (u16)p[0] | ((u16)p[1] << 8);
-}
-
-// General row stride calculator: rows are padded to 4-byte boundaries.
-static inline u32 bmp_stride(u32 w, u32 bits_per_pixel) {
-    u64 bits = (u64)w * (u64)bits_per_pixel;
-    u64 stride = ((bits + 31) / 32) * 4;
-    return (u32)stride;
-}
-
 static int viewer_load_bmp(const char* path) {
-    v_img_base = 0; v_img_pix_off = 0; v_img_w = v_img_h = 0; v_img_bpp = 0; v_img_stride = 0; v_img_top_down = 0;
+    memset(&v_bmp, 0, sizeof(v_bmp));
     if (!path || !fb_console_present()) return 0;
     Node* f = cldramfs_resolve_path_file(path, 0);
-    if (!f || !f->content || f->content_size < 54) return 0;
-    const u8* p = (const u8*)f->content;
-    if (!(p[0] == 'B' && p[1] == 'M')) return 0;
-    u32 pix_off = rd_le32(p + 10);
-    u32 dib_size = rd_le32(p + 14);
-    if (dib_size < 40) return 0;
-    int32_t w_signed = (int32_t)rd_le32(p + 18);
-    int32_t h_signed = (int32_t)rd_le32(p + 22);
-    if (w_signed <= 0 || h_signed == 0) return 0;
-    u32 w = (u32)w_signed;
-    u32 h = (u32)(h_signed > 0 ? h_signed : -h_signed);
-    int top_down = (h_signed < 0);
-    u16 planes = rd_le16(p + 26);
-    u16 bpp = rd_le16(p + 28);
-    u32 compression = rd_le32(p + 30);
-    if (planes != 1) return 0;
-    if (!(bpp == 24 || bpp == 32)) return 0;
-    if (!(compression == 0 || (bpp == 32 && compression == 3))) return 0;
-    if (w == 0 || h == 0) return 0;
-    if (pix_off >= f->content_size) return 0;
-    // Quick bounds safety
-    u32 stride = bmp_stride(w, bpp);
-    if ((u64)pix_off + (u64)stride * (u64)(h - 1) + (u64)(w * (bpp / 8)) > (u64)f->content_size) {
-        if ((u64)pix_off >= (u64)f->content_size) return 0;
-    }
-    v_img_base = p;
-    v_img_pix_off = pix_off;
-    v_img_w = w;
-    v_img_h = h;
-    v_img_bpp = bpp;
-    v_img_stride = stride;
-    v_img_top_down = top_down;
-    return 1;
-}
-
-static inline const u8* viewer_src_row_ptr(u32 src_row) {
-    return v_img_base + v_img_pix_off + (u64)src_row * (u64)v_img_stride;
+    if (!f || !f->content) return 0;
+    return gui_bmp_parse(f->content, f->content_size, &v_bmp);
 }
 
 static void viewer_build_scaled_row_into(u32 dst_y, u8* out_row) {
-    if (!v_img_base || v_pw == 0 || v_ph == 0) return;
-    u32 sy = (u64)dst_y * (u64)v_img_h / (u64)v_ph;
-    u32 src_row = v_img_top_down ? sy : (v_img_h - 1 - sy);
-    const u8* row_ptr = viewer_src_row_ptr(src_row);
-    u32 src_px_stride = (u32)(v_img_bpp / 8);
+    if (!v_bmp.base || v_pw == 0 || v_ph == 0) return;
+    u32 sy = (u64)dst_y * (u64)v_bmp.height / (u64)v_ph;
     u8* d = out_row;
     for (u32 dx = 0; dx < v_pw; dx++) {
-        u32 sx = (u64)dx * (u64)v_img_w / (u64)v_pw;
-        const u8* sp = row_ptr + (u64)sx * (u64)src_px_stride;
-        u8 B = sp[0];
-        u8 G = sp[1];
-        u8 R = sp[2];
-        if (v_fb_bpp == 4) {
-            d[0] = B; d[1] = G; d[2] = R; d[3] = 0xFF;
-        } else if (v_fb_bpp == 3) {
-            d[0] = B; d[1] = G; d[2] = R;
-        } else if (v_fb_bpp == 2) {
-            u16 rv = ((u16)R & 0xF8) << 8;
-            u16 gv = ((u16)G & 0xFC) << 3;
-            u16 bv = ((u16)B & 0xF8) >> 3;
-            u16 v = rv | gv | bv;
-            d[0] = (u8)(v & 0xFF);
-            d[1] = (u8)(v >> 8);
-        }
+        u32 sx = (u64)dx * (u64)v_bmp.width / (u64)v_pw;
+        u8 rgb[3];
+        gui_bmp_get_rgb(&v_bmp, sx, sy, rgb);
+        gui_bmp_write_fb_pixel(d, v_fb_bpp, rgb);
         d += v_fb_bpp;
     }
 }
@@ -140,7 +65,7 @@ void gui_viewer_init(u32 px, u32 py, u32 pw, u32 ph) {
         v_linebuf = (u8*)kmalloc((size_t)((u64)v_pw * (u64)v_fb_bpp));
     }
     // Start blank; user must open a file
-    v_img_base = 0; v_img_pix_off = 0; v_img_w = v_img_h = 0; v_img_bpp = 0; v_img_stride = 0; v_img_top_down = 0;
+    memset(&v_bmp, 0, sizeof(v_bmp));
     v_new_image = 0; v_menu_open = 0; viewer_clear_list(); v_modal_open = 0; v_modal_len = 0; v_modal_buf[0] = '\0';
 }
 
@@ -159,7 +84,7 @@ void gui_viewer_resize(u32 pw, u32 ph) {
 void gui_viewer_render_all(void) {
     if (!v_fb_bpp || !v_linebuf || !v_pw || !v_ph) return;
     // If no image loaded, fill region with white background
-    if (!v_img_base) {
+    if (!v_bmp.base) {
         fb_fill_rect_rgb(v_px, v_py, v_pw, v_ph, 0xFF, 0xFF, 0xFF);
         return;
     }
@@ -171,7 +96,7 @@ void gui_viewer_render_all(void) {
 
 void gui_viewer_free(void) {
     if (v_linebuf) { kfree(v_linebuf); v_linebuf = 0; }
-    v_img_base = 0; v_img_pix_off = 0; v_img_w = v_img_h = 0; v_img_bpp = 0; v_img_stride = 0; v_img_top_down = 0;
+    memset(&v_bmp, 0, sizeof(v_bmp));
     v_pw = v_ph = 0;
     viewer_clear_list();
 }
@@ -278,11 +203,11 @@ int gui_viewer_on_click(u32 px, u32 py) {
 
 int gui_viewer_on_move(u32 px, u32 py) { (void)px; (void)py; return 0; }
 
-int gui_viewer_has_image(void) { return v_img_base != 0; }
+int gui_viewer_has_image(void) { return v_bmp.base != 0; }
 
 void gui_viewer_get_image_dims(u32* w, u32* h) {
-    if (w) *w = v_img_w;
-    if (h) *h = v_img_h;
+    if (w) *w = v_bmp.width;
+    if (h) *h = v_bmp.height;
 }
 
 int gui_viewer_consume_new_image_flag(void) {

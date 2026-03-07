@@ -28,10 +28,11 @@ static int last_rect_valid = 0;
 // Live dropdown rect while open (covers all items)
 static u32 menu_rect_x = 0, menu_rect_y = 0, menu_rect_w = 0, menu_rect_h = 0;
 
-// Colors
-static const u8 BAR_BG[3]    = { 0x25, 0x25, 0x28 };
-static const u8 BAR_ACC[3]   = { 0x66, 0x66, 0x6A }; // stylish gray accent
-static const u8 SEP_COL[3]   = { 0x40, 0x40, 0x44 };
+static gui_bar_style_t bar_style = {
+    { 0x25, 0x25, 0x28 },
+    { 0x66, 0x66, 0x6A },
+    { 0x40, 0x40, 0x44 },
+};
 
 static void draw_rect_rgb(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
     fb_fill_rect_rgb(x, y, w, h, rgb[0], rgb[1], rgb[2]);
@@ -64,21 +65,26 @@ void gui_bar_init(void) {
     gui_bar_add_menu("Menu");
 }
 
+void gui_bar_set_style(const gui_bar_style_t *style) {
+    if (!style) return;
+    bar_style = *style;
+}
+
 void gui_bar_render(void) {
     u32 w = 0, h = 0; fb_get_resolution(&w, &h);
     if (w == 0 || h == 0) return;
-    draw_rect_rgb(0, 0, w, GUI_BAR_HEIGHT, BAR_BG);
+    draw_rect_rgb(0, 0, w, GUI_BAR_HEIGHT, bar_style.background);
 
     // Menus on left (only first used)
     u32 x = 8; u32 y = 4;
     if (menu_count > 0 && menus[0].label) {
         u32 tw = text_width_px(menus[0].label) + 12;
         // Menu button background (slight accent if open)
-        if (menu_open) draw_rect_rgb(x, 2, tw, GUI_BAR_HEIGHT - 4, SEP_COL);
+        if (menu_open) draw_rect_rgb(x, 2, tw, GUI_BAR_HEIGHT - 4, bar_style.separator);
         draw_text(x + 6, y, menus[0].label, 0x0F);
         menu_btn_x = x; menu_btn_w = tw;
         x += tw + 8;
-        draw_rect_rgb(x - 4, 4, 1, GUI_BAR_HEIGHT - 8, SEP_COL);
+        draw_rect_rgb(x - 4, 4, 1, GUI_BAR_HEIGHT - 8, bar_style.separator);
     } else {
         menu_btn_x = 0; menu_btn_w = 0;
     }
@@ -92,7 +98,7 @@ void gui_bar_render(void) {
         x += text_width_px(menus[i].label) + 16;
     }
     if (x < w) {
-        draw_rect_rgb(x, GUI_BAR_HEIGHT - 2, w - x, 2, SEP_COL);
+        draw_rect_rgb(x, GUI_BAR_HEIGHT - 2, w - x, 2, bar_style.separator);
     }
 
     u32 wx = x + 12;
@@ -102,7 +108,7 @@ void gui_bar_render(void) {
         if (wx + tw + pad > w) break;
         // Active highlight
         if (windows[i].active) {
-            draw_rect_rgb(wx - 6, 2, tw, GUI_BAR_HEIGHT - 4, BAR_ACC);
+            draw_rect_rgb(wx - 6, 2, tw, GUI_BAR_HEIGHT - 4, bar_style.active);
             draw_text(wx - 0, 4, windows[i].title, 0x0F);
         } else {
             draw_text(wx, 4, windows[i].title, 0x07);
@@ -130,22 +136,22 @@ void gui_bar_render(void) {
         u32 iy = GUI_BAR_HEIGHT; // flush under bar to avoid hover gap
         u32 ih = 18;
         // Item 1
-        draw_rect_rgb(ix, iy, itw, ih, SEP_COL);
+        draw_rect_rgb(ix, iy, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + 2, item1, 0x0F);
         // Item 2
-        draw_rect_rgb(ix, iy + ih, itw, ih, SEP_COL);
+        draw_rect_rgb(ix, iy + ih, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + ih + 2, item2, 0x0F);
         // Item 3
-        draw_rect_rgb(ix, iy + ih * 2, itw, ih, SEP_COL);
+        draw_rect_rgb(ix, iy + ih * 2, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + ih * 2 + 2, item3, 0x0F);
         // Item 4
-        draw_rect_rgb(ix, iy + ih * 3, itw, ih, SEP_COL);
+        draw_rect_rgb(ix, iy + ih * 3, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + ih * 3 + 2, item4, 0x0F);
         // Item 5
-        draw_rect_rgb(ix, iy + ih * 4, itw, ih, SEP_COL);
+        draw_rect_rgb(ix, iy + ih * 4, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + ih * 4 + 2, item5, 0x0F);
         // Item 6
-        draw_rect_rgb(ix, iy + ih * 5, itw, ih, SEP_COL);
+        draw_rect_rgb(ix, iy + ih * 5, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + ih * 5 + 2, item6, 0x0F);
         // Store hitboxes
         menu_item_x = ix; menu_item_y = iy; menu_item_w = itw; menu_item_h = ih;

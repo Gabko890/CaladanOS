@@ -15,6 +15,19 @@
 
 typedef struct gui_window gui_window_t;
 
+typedef struct {
+    u8 window[3];
+    u8 title[3];
+    u8 active_title[3];
+    u8 border[3];
+    u8 menu[3];
+    u8 popup[3];
+    u8 close_button[3];
+    u8 minimize_button[3];
+    u8 outline_light[3];
+    u8 outline_dark[3];
+} gui_window_style_t;
+
 typedef void (*gui_window_render_fn)(gui_window_t *win, void *ctx);
 typedef void (*gui_window_resize_fn)(gui_window_t *win, u32 content_w, u32 content_h, void *ctx);
 typedef void (*gui_window_move_fn)(gui_window_t *win, u32 content_x, u32 content_y, void *ctx);
@@ -57,6 +70,7 @@ struct gui_window {
 };
 
 void gui_window_manager_init(void);
+void gui_window_set_style(const gui_window_style_t *style);
 gui_window_t* gui_window_create(const char *title, u32 x, u32 y, u32 w, u32 h, u32 flags, gui_window_callbacks_t cb);
 void gui_window_destroy(gui_window_t *win);
 void gui_window_destroy_all(void);
