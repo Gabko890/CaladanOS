@@ -1,2 +1,2 @@
-wallpaper = "/usr/share/wallpapers/default.bmp"
+wallpaper = "/usr/share/wallpapers/shapes.png"
 include("/etc/gui/style.lua")

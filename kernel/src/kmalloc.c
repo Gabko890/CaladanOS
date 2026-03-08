@@ -21,6 +21,7 @@ static size_t align_size(size_t size) {
 // Forward declarations
 static void insert_free_block(free_block_t* block);
 static void merge_free_blocks(void);
+static int ptr_in_heap_segment(kheap_info_t* heap_info, uintptr_t addr, size_t size);
 
 static free_block_t* find_free_block(size_t size) {
     free_block_t* current = g_free_list;
@@ -99,13 +100,17 @@ void kmalloc_init(struct memory_info* minfo) {
         return;
     }
     
-    // TODO: dlmalloc hangs with large heaps - temporarily use simple allocator
-    // Initialize simple free list for now
-    g_free_list = (free_block_t*)heap_info->base_virt;
-    g_free_list->size = heap_info->total_size;
-    g_free_list->next = NULL;
+    g_free_list = NULL;
+    for (size_t i = 0; i < heap_info->segment_count; i++) {
+        if (heap_info->segments[i].size < MIN_BLOCK_SIZE) continue;
+        free_block_t* block = (free_block_t*)heap_info->segments[i].base_virt;
+        block->size = heap_info->segments[i].size;
+        block->next = NULL;
+        insert_free_block(block);
+    }
     
-    vga_printf("kmalloc_init: Dynamic allocator ready (temporary simple allocator)\n");
+    vga_printf("kmalloc_init: Dynamic allocator ready (%llu KB available)\n",
+              (u64)heap_info->total_size / 1024);
 }
 
 void* kmalloc(size_t size) {
@@ -126,12 +131,24 @@ void* kmalloc(size_t size) {
     
     split_block(block, aligned_size);
     
-    *(size_t*)block = aligned_size;
-    heap_info->used_size += aligned_size;
+    *(size_t*)block = block->size;
+    heap_info->used_size += block->size;
     
     return (void*)((char*)block + sizeof(size_t));
 }
 
+
+static int ptr_in_heap_segment(kheap_info_t* heap_info, uintptr_t addr, size_t size) {
+    if (!heap_info || size == 0) return 0;
+    if (addr + size < addr) return 0;
+
+    for (size_t i = 0; i < heap_info->segment_count; i++) {
+        uintptr_t seg_base = (uintptr_t)heap_info->segments[i].base_virt;
+        uintptr_t seg_end = seg_base + heap_info->segments[i].size;
+        if (addr >= seg_base && addr + size <= seg_end) return 1;
+    }
+    return 0;
+}
 
 void kfree(void* ptr) {
     kheap_info_t* heap_info = kheap_get_info();
@@ -142,8 +159,7 @@ void kfree(void* ptr) {
     char* block_start = (char*)ptr - sizeof(size_t);
     size_t block_size = *(size_t*)block_start;
     
-    if ((uintptr_t)block_start < (uintptr_t)heap_info->base_virt ||
-        (uintptr_t)block_start >= (uintptr_t)heap_info->base_virt + heap_info->total_size) {
+    if (!ptr_in_heap_segment(heap_info, (uintptr_t)block_start, block_size)) {
         return;
     }
     
@@ -189,11 +205,14 @@ u64 kmalloc_virt_to_phys(void* virt_ptr) {
     }
     
     uintptr_t virt_addr = (uintptr_t)virt_ptr;
-    uintptr_t heap_base = (uintptr_t)heap_info->base_virt;
-    
-    if (virt_addr >= heap_base && virt_addr < heap_base + heap_info->total_size) {
-        u64 offset = virt_addr - heap_base;
-        return heap_info->base_phys + offset;
+
+    for (size_t i = 0; i < heap_info->segment_count; i++) {
+        uintptr_t seg_base = (uintptr_t)heap_info->segments[i].base_virt;
+        uintptr_t seg_end = seg_base + heap_info->segments[i].size;
+        if (virt_addr >= seg_base && virt_addr < seg_end) {
+            u64 offset = virt_addr - seg_base;
+            return heap_info->segments[i].base_phys + offset;
+        }
     }
     
     return 0;
@@ -213,9 +232,20 @@ void kmalloc_debug_info(void) {
         return;
     }
     
-    vga_printf("=== Kernel Heap Info (dlmalloc) ===\n");
-    vga_printf("Base: 0x%llx, Total Size: %llu KB\n", 
-              (u64)heap_info->base_virt, heap_info->total_size / 1024);
+    vga_printf("=== Kernel Heap Info ===\n");
+    vga_printf("Base: 0x%llx, Total Size: %llu KB, Used: %llu KB, Segments: %llu\n",
+              (u64)heap_info->base_virt,
+              heap_info->total_size / 1024,
+              heap_info->used_size / 1024,
+              (u64)heap_info->segment_count);
+
+    for (size_t i = 0; i < heap_info->segment_count; i++) {
+        vga_printf("  segment %llu: virt=0x%llx phys=0x%llx size=%llu KB\n",
+                  (u64)i,
+                  (u64)heap_info->segments[i].base_virt,
+                  heap_info->segments[i].base_phys,
+                  heap_info->segments[i].size / 1024);
+    }
     
     if (kernel_mspace) {
         vga_printf("dlmalloc memory space initialized\n");

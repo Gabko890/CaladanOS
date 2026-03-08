@@ -3,9 +3,10 @@
 
 #include <cldtypes.h>
 
-// Load and prepare wallpaper from RAMFS BMP path (e.g., "/usr/share/wallpapers/xyz.bmp").
+// Load and prepare wallpaper from RAMFS PNG path (e.g., "/usr/share/wallpapers/xyz.png").
 // Returns 1 on success, 0 on failure.
 int gui_wallpaper_load(const char* path);
+const char *gui_wallpaper_last_error(void);
 
 // Is wallpaper loaded and prepared for drawing?
 int gui_wallpaper_is_loaded(void);

@@ -422,11 +422,11 @@ int cldramfs_shell_process_command(const char *command_line) {
             else vga_printf("guictl: config missing or invalid\n");
         } else if (strcmp(arg, "reload wallpaper") == 0) {
             if (gui_reload_wallpaper()) vga_printf("guictl: wallpaper reloaded\n");
-            else vga_printf("guictl: wallpaper load failed\n");
+            else vga_printf("guictl: wallpaper load failed: %s\n", gui_wallpaper_error());
         } else if (strncmp(arg, "change wallpaper", 16) == 0 && (arg[16] == ' ' || arg[16] == '\t')) {
             char *path = skip_whitespace(arg + 16);
             if (gui_change_wallpaper(path)) vga_printf("guictl: wallpaper changed for this session\n");
-            else vga_printf("guictl: cannot load wallpaper '%s'\n", path);
+            else vga_printf("guictl: cannot load wallpaper '%s': %s\n", path, gui_wallpaper_error());
         } else {
             print_guictl_help();
         }

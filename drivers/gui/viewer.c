@@ -1,17 +1,19 @@
 #include "viewer.h"
-#include "bmp.h"
+#include "png.h"
 #include <fb/fb_console.h>
 #include <cldramfs/cldramfs.h>
 #include <kmalloc.h>
 #include <string.h>
+#include <stdio.h>
 #include <ps2.h>
 #include <cldramfs/tty.h>
+#include <vgaio.h>
 
 // Viewer region
 static u32 v_px = 0, v_py = 0, v_pw = 0, v_ph = 0;
 static u8  v_fb_bpp = 0;
 
-static gui_bmp_t v_bmp;
+static gui_png_t v_png;
 
 // Temporary line buffer (one scanline in framebuffer format)
 static u8* v_linebuf = 0;        // size: v_pw * v_fb_bpp
@@ -28,6 +30,7 @@ static u32 v_mi_open_x = 0, v_mi_open_y = 0, v_mi_open_w = 0, v_mi_open_h = 0;
 static int v_modal_open = 0;
 static char v_modal_buf[128];
 static int v_modal_len = 0;
+static char v_last_error[160] = "no image load attempted";
 
 #define V_MAX_ITEMS 32
 static char* v_list_paths[V_MAX_ITEMS];
@@ -36,23 +39,54 @@ static int v_list_count = 0;
 
 static void viewer_clear_list(void) { for (int i = 0; i < v_list_count; i++) { if (v_list_paths[i]) kfree(v_list_paths[i]); if (v_list_labels[i]) kfree(v_list_labels[i]); } v_list_count = 0; }
 
-static int viewer_load_bmp(const char* path) {
-    memset(&v_bmp, 0, sizeof(v_bmp));
-    if (!path || !fb_console_present()) return 0;
+static void viewer_set_error(const char *msg) {
+    if (!msg) msg = "unknown image viewer error";
+    strncpy(v_last_error, msg, sizeof(v_last_error) - 1);
+    v_last_error[sizeof(v_last_error) - 1] = '\0';
+}
+
+static int viewer_load_image(const char* path) {
+    gui_png_free(&v_png);
+    if (!path || !*path) {
+        viewer_set_error("missing image path");
+        return 0;
+    }
+    if (!fb_console_present()) {
+        viewer_set_error("framebuffer is not available");
+        return 0;
+    }
+
     Node* f = cldramfs_resolve_path_file(path, 0);
-    if (!f || !f->content) return 0;
-    return gui_bmp_parse(f->content, f->content_size, &v_bmp);
+    if (!f) {
+        snprintf(v_last_error, sizeof(v_last_error), "file not found: %s", path);
+        return 0;
+    }
+    if (f->type != FILE_NODE) {
+        snprintf(v_last_error, sizeof(v_last_error), "not a file: %s", path);
+        return 0;
+    }
+    if (!f->content || f->content_size == 0) {
+        snprintf(v_last_error, sizeof(v_last_error), "empty file: %s", path);
+        return 0;
+    }
+    if (!gui_png_load(f->content, f->content_size, &v_png)) {
+        snprintf(v_last_error, sizeof(v_last_error), "%s: %s", path, gui_png_last_error());
+        return 0;
+    }
+
+    snprintf(v_last_error, sizeof(v_last_error), "loaded %ux%u PNG: %s", v_png.width, v_png.height, path);
+    return 1;
 }
 
 static void viewer_build_scaled_row_into(u32 dst_y, u8* out_row) {
-    if (!v_bmp.base || v_pw == 0 || v_ph == 0) return;
-    u32 sy = (u64)dst_y * (u64)v_bmp.height / (u64)v_ph;
+    if (!v_png.rgb || v_pw == 0 || v_ph == 0) return;
+    u32 sy = (u64)dst_y * (u64)v_png.height / (u64)v_ph;
     u8* d = out_row;
     for (u32 dx = 0; dx < v_pw; dx++) {
-        u32 sx = (u64)dx * (u64)v_bmp.width / (u64)v_pw;
+        u32 sx = (u64)dx * (u64)v_png.width / (u64)v_pw;
         u8 rgb[3];
-        gui_bmp_get_rgb(&v_bmp, sx, sy, rgb);
-        gui_bmp_write_fb_pixel(d, v_fb_bpp, rgb);
+        gui_png_get_rgb(&v_png, sx, sy, rgb);
+        gui_png_write_fb_pixel(d, v_fb_bpp, rgb);
         d += v_fb_bpp;
     }
 }
@@ -65,7 +99,7 @@ void gui_viewer_init(u32 px, u32 py, u32 pw, u32 ph) {
         v_linebuf = (u8*)kmalloc((size_t)((u64)v_pw * (u64)v_fb_bpp));
     }
     // Start blank; user must open a file
-    memset(&v_bmp, 0, sizeof(v_bmp));
+    gui_png_free(&v_png);
     v_new_image = 0; v_menu_open = 0; viewer_clear_list(); v_modal_open = 0; v_modal_len = 0; v_modal_buf[0] = '\0';
 }
 
@@ -84,7 +118,7 @@ void gui_viewer_resize(u32 pw, u32 ph) {
 void gui_viewer_render_all(void) {
     if (!v_fb_bpp || !v_linebuf || !v_pw || !v_ph) return;
     // If no image loaded, fill region with white background
-    if (!v_bmp.base) {
+    if (!v_png.rgb) {
         fb_fill_rect_rgb(v_px, v_py, v_pw, v_ph, 0xFF, 0xFF, 0xFF);
         return;
     }
@@ -96,7 +130,7 @@ void gui_viewer_render_all(void) {
 
 void gui_viewer_free(void) {
     if (v_linebuf) { kfree(v_linebuf); v_linebuf = 0; }
-    memset(&v_bmp, 0, sizeof(v_bmp));
+    gui_png_free(&v_png);
     v_pw = v_ph = 0;
     viewer_clear_list();
 }
@@ -203,11 +237,11 @@ int gui_viewer_on_click(u32 px, u32 py) {
 
 int gui_viewer_on_move(u32 px, u32 py) { (void)px; (void)py; return 0; }
 
-int gui_viewer_has_image(void) { return v_bmp.base != 0; }
+int gui_viewer_has_image(void) { return v_png.rgb != 0; }
 
 void gui_viewer_get_image_dims(u32* w, u32* h) {
-    if (w) *w = v_bmp.width;
-    if (h) *h = v_bmp.height;
+    if (w) *w = v_png.width;
+    if (h) *h = v_png.height;
 }
 
 int gui_viewer_consume_new_image_flag(void) {
@@ -228,7 +262,12 @@ void gui_viewer_handle_key(u8 scancode, int is_extended, int is_pressed) {
         case US_ENTER: {
             // Try to open path in buffer
             if (v_modal_len > 0) {
-                if (viewer_load_bmp(v_modal_buf)) { v_new_image = 1; }
+                if (viewer_load_image(v_modal_buf)) {
+                    v_new_image = 1;
+                    vga_printf("viewer: %s\n", v_last_error);
+                } else {
+                    vga_printf("viewer: cannot load image: %s\n", v_last_error);
+                }
             }
             v_modal_open = 0;
             gui_viewer_render_all(); gui_viewer_draw_overlays();

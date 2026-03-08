@@ -9,6 +9,7 @@ void gui_start(void);
 int gui_reload_config(void);
 int gui_reload_wallpaper(void);
 int gui_change_wallpaper(const char *path);
+const char *gui_wallpaper_error(void);
 
 // Optional helpers to open specific windows programmatically
 void gui_open_snake(void);

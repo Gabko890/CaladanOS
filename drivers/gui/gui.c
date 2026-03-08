@@ -23,7 +23,7 @@
 #define GUI_FRAME_PAD_X     6
 #define GUI_FRAME_PAD_Y     10
 #define GUI_CONFIG_PATH     "/etc/gui/gui.lua"
-#define GUI_DEFAULT_WALLPAPER "/usr/share/wallpapers/default.bmp"
+#define GUI_DEFAULT_WALLPAPER "/usr/share/wallpapers/default.png"
 
 typedef enum {
     APP_TERMINAL = 0,
@@ -602,6 +602,10 @@ int gui_change_wallpaper(const char *path) {
     gui_render_desktop();
     gui_cursor_draw(cursor_x, cursor_y);
     return ok;
+}
+
+const char *gui_wallpaper_error(void) {
+    return gui_wallpaper_last_error();
 }
 
 static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {

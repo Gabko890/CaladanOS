@@ -3,46 +3,32 @@
 #include <vgaio.h>
 #include <ldinfo.h>
 
+#define KHEAP_VIRT_BASE 0xFFFFA00000000000ULL
+
 static kheap_info_t kernel_heap = {0};
 
 static inline u64 align_up_u64(u64 v, u64 a) {
     return (v + (a - 1)) & ~(a - 1);
 }
 
+static inline u64 align_down_u64(u64 v, u64 a) {
+    return v & ~(a - 1);
+}
+
 size_t kheap_compute_required_size(struct memory_info* minfo) {
-    if (!minfo) return 8ULL << 20; // 8MB default
-    
-    // Calculate total available system RAM
+    if (!minfo) return 0;
+
     u64 total_ram = 0ULL;
     for (size_t i = 0; i < minfo->count && i < MEMORY_INFO_MAX; ++i) {
         const struct memory_region *r = &minfo->regions[i];
-        if (r->flags & MEMORY_INFO_SYSTEM_RAM) {
-            total_ram += r->size;
-        }
+        if (!(r->flags & MEMORY_INFO_SYSTEM_RAM) || r->size == 0) continue;
+
+        u64 start = align_up_u64(r->addr_start, PAGE_4K);
+        u64 end = align_down_u64(r->addr_end + 1ULL, PAGE_4K);
+        if (end > start) total_ram += end - start;
     }
-    
-    if (total_ram == 0ULL) {
-        vga_printf("kheap: No system RAM found, using default 8MB\n");
-        return 8ULL << 20;
-    }
-    
-    // Use 1/10th of total RAM for kernel heap
-    u64 heap_size = total_ram / 10ULL;
-    
-    // Set reasonable bounds
-    const u64 MIN_HEAP = 8ULL << 20;   // 8MB minimum
-    const u64 MAX_HEAP = 32ULL << 20; // 32MB maximum (reduced for dlmalloc compatibility)
-    
-    if (heap_size < MIN_HEAP) heap_size = MIN_HEAP;
-    if (heap_size > MAX_HEAP) heap_size = MAX_HEAP;
-    
-    // Align to 1MB boundary for better management
-    heap_size = align_up_u64(heap_size, 1ULL << 20);
-    
-    vga_printf("kheap: Total RAM: %llu MB, Allocating %llu MB (%llu%%) for kernel heap\n",
-              total_ram >> 20, heap_size >> 20, (heap_size * 100) / total_ram);
-    
-    return (size_t)heap_size;
+
+    return (size_t)total_ram;
 }
 
 u64 kheap_reserve_from_memory_info(struct memory_info* minfo, size_t bytes_required) {
@@ -92,6 +78,32 @@ u64 kheap_reserve_from_memory_info(struct memory_info* minfo, size_t bytes_requi
     return 0;
 }
 
+static u8 kheap_map_range(u64 virt, u64 phys, u64 size) {
+    u64 off = 0;
+    while (off < size) {
+        u64 v = virt + off;
+        u64 p = phys + off;
+        u64 remaining = size - off;
+
+        if ((v & (PAGE_2M - 1ULL)) == 0 &&
+            (p & (PAGE_2M - 1ULL)) == 0 &&
+            remaining >= PAGE_2M) {
+            if (!mm_map(v, p, PTE_RW | PTE_PRESENT | PTE_HUGE, PAGE_2M)) {
+                vga_printf("kheap: Failed to map 2M heap page virt=0x%llx phys=0x%llx\n", v, p);
+                return 0;
+            }
+            off += PAGE_2M;
+        } else {
+            if (!mm_map(v, p, PTE_RW | PTE_PRESENT, PAGE_4K)) {
+                vga_printf("kheap: Failed to map 4K heap page virt=0x%llx phys=0x%llx\n", v, p);
+                return 0;
+            }
+            off += PAGE_4K;
+        }
+    }
+    return 1;
+}
+
 u8 kheap_init(struct memory_info* minfo) {
     if (kernel_heap.initialized) {
         vga_printf("kheap: Already initialized\n");
@@ -102,38 +114,69 @@ u8 kheap_init(struct memory_info* minfo) {
         vga_printf("kheap: Invalid memory info\n");
         return 0;
     }
-    
-    // Calculate required heap size (1/10th of RAM)
+
     size_t heap_size = kheap_compute_required_size(minfo);
-    
-    // Reserve physical memory for heap
-    u64 heap_phys = kheap_reserve_from_memory_info(minfo, heap_size);
-    if (!heap_phys) {
-        vga_printf("kheap: Failed to reserve physical memory\n");
+    if (heap_size == 0) {
+        vga_printf("kheap: No usable system RAM left for heap\n");
         return 0;
     }
-    
-    // Calculate virtual address (after kernel with proper alignment)
-    u64 kernel_end_aligned = ((u64)__kernel_end_vma + 0xFFFFFULL) & ~0xFFFFFULL; // 1MB align
-    u64 heap_virt = kernel_end_aligned + 0x100000ULL; // 1MB gap after kernel
-    
-    // Map the heap to virtual space
-    for (u64 offset = 0; offset < heap_size; offset += PAGE_4K) {
-        if (!mm_map(heap_virt + offset, heap_phys + offset, PTE_RW | PTE_PRESENT, PAGE_4K)) {
-            vga_printf("kheap: Failed to map heap at offset 0x%llx\n", offset);
+
+    u64 next_virt = KHEAP_VIRT_BASE;
+    size_t segment_count = 0;
+    size_t total_mapped = 0;
+
+    for (size_t i = 0; i < minfo->count && i < MEMORY_INFO_MAX; ++i) {
+        struct memory_region *r = &minfo->regions[i];
+        if (!(r->flags & MEMORY_INFO_SYSTEM_RAM) || r->size == 0) continue;
+
+        u64 phys_start = align_up_u64(r->addr_start, PAGE_4K);
+        u64 phys_end = align_down_u64(r->addr_end + 1ULL, PAGE_4K);
+        if (phys_end <= phys_start) {
+            r->size = 0;
+            r->addr_end = r->addr_start;
+            continue;
+        }
+
+        u64 segment_size = phys_end - phys_start;
+        u64 segment_virt = align_up_u64(next_virt, PAGE_2M) + (phys_start & (PAGE_2M - 1ULL));
+        if (segment_virt < next_virt) segment_virt += PAGE_2M;
+
+        if (segment_count >= KHEAP_MAX_SEGMENTS) {
+            vga_printf("kheap: Too many heap segments\n");
             return 0;
         }
+
+        if (!kheap_map_range(segment_virt, phys_start, segment_size)) return 0;
+
+        kernel_heap.segments[segment_count].base_virt = (void*)segment_virt;
+        kernel_heap.segments[segment_count].base_phys = phys_start;
+        kernel_heap.segments[segment_count].size = (size_t)segment_size;
+        segment_count++;
+        total_mapped += (size_t)segment_size;
+
+        next_virt = segment_virt + segment_size;
+
+        // This RAM is now owned by the allocator.
+        r->addr_start = phys_end;
+        r->addr_end = phys_end;
+        r->size = 0;
     }
-    
+
+    if (segment_count == 0 || total_mapped == 0) {
+        vga_printf("kheap: No heap segments mapped\n");
+        return 0;
+    }
+
     // Initialize heap structure
-    kernel_heap.base_virt = (void*)heap_virt;
-    kernel_heap.base_phys = heap_phys;
-    kernel_heap.total_size = heap_size;
+    kernel_heap.base_virt = kernel_heap.segments[0].base_virt;
+    kernel_heap.base_phys = kernel_heap.segments[0].base_phys;
+    kernel_heap.total_size = total_mapped;
     kernel_heap.used_size = 0;
+    kernel_heap.segment_count = segment_count;
     kernel_heap.initialized = 1;
     
-    vga_printf("kheap: Initialized at virt=0x%llx phys=0x%llx size=%llu MB\n",
-              heap_virt, heap_phys, heap_size >> 20);
+    vga_printf("kheap: Initialized size=%llu MB using %llu RAM segments\n",
+              (u64)kernel_heap.total_size >> 20, (u64)segment_count);
     
     return 1;
 }
