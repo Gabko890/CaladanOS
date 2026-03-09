@@ -9,6 +9,7 @@
 #include <deferred.h>
 #include <lua_vm.h>
 #include <kmalloc.h>
+#include <kheap.h>
 #include <sysinfo.h>
 
 // External TTY functions
@@ -67,6 +68,40 @@ static void trim_trailing_whitespace(char *str) {
     while (len > 0 && (str[len - 1] == ' ' || str[len - 1] == '\t' || str[len - 1] == '\n')) {
         str[--len] = '\0';
     }
+}
+
+static void print_sysinfo_kernel(void) {
+    vga_printf("Kernel version: %s\n", sysinfo.kernel_version);
+    vga_printf("Build label:    %s\n", sysinfo.build_label);
+    vga_printf("Git branch:     %s\n", sysinfo.git_branch);
+    vga_printf("Git commit:     %s\n", sysinfo.git_commit);
+    vga_printf("Build datetime: %s\n", sysinfo.build_datetime);
+}
+
+static void print_sysinfo_memory(void) {
+    kheap_info_t *heap = kheap_get_info();
+    if (!heap || !heap->initialized) {
+        vga_printf("Memory allocator: not initialized\n");
+        return;
+    }
+
+    u64 total = (u64)heap->total_size;
+    u64 used = (u64)heap->used_size;
+    if (used > total) used = total;
+    u64 available = total - used;
+    u64 used_percent = total ? ((used * 100ULL) / total) : 0;
+
+    vga_printf("Allocator memory:\n");
+    vga_printf("  Total:     %llu KB (%llu MB)\n", total / 1024ULL, total >> 20);
+    vga_printf("  Used:      %llu KB (%llu%%)\n", used / 1024ULL, used_percent);
+    vga_printf("  Available: %llu KB (%llu%%)\n", available / 1024ULL, total ? ((available * 100ULL) / total) : 0);
+    vga_printf("  Segments:  %llu\n", (u64)heap->segment_count);
+}
+
+static void print_sysinfo_help(void) {
+    vga_printf("Usage:\n");
+    vga_printf("  sysinfo kernel\n");
+    vga_printf("  sysinfo memory\n");
 }
 
 static int shell_line_is_command(const char *line, const char *expected) {
@@ -390,7 +425,7 @@ int cldramfs_shell_process_command(const char *command_line) {
         vga_printf("  echo [text]         - Print text to stdout\n");
         vga_printf("  exec <file.o>       - Execute ELF relocatable file\n");
         vga_printf("  lua <script.lua>    - Run Lua script\n");
-        vga_printf("  sysinfo             - Show kernel build information\n");
+        vga_printf("  sysinfo <topic>     - Show kernel or memory information\n");
         vga_printf("  guictl <command>    - Manage GUI (guictl help)\n");
         vga_printf("  snake               - Open Snake in GUI\n");
         vga_printf("  cmd > file          - Redirect command output to file\n");
@@ -402,12 +437,17 @@ int cldramfs_shell_process_command(const char *command_line) {
         // Clear screen using ANSI escape sequences
         vga_printf("\x1b[2J\x1b[H");
     }
-    else if (strcmp(cmd, "sysinfo") == 0) {
-        vga_printf("Kernel version: %s\n", sysinfo.kernel_version);
-        vga_printf("Build label:    %s\n", sysinfo.build_label);
-        vga_printf("Git branch:     %s\n", sysinfo.git_branch);
-        vga_printf("Git commit:     %s\n", sysinfo.git_commit);
-        vga_printf("Build datetime: %s\n", sysinfo.build_datetime);
+    else if (strncmp(cmd, "sysinfo", 7) == 0 && (cmd[7] == '\0' || cmd[7] == ' ' || cmd[7] == '\t')) {
+        char *arg = find_arg(cmd);
+        if (!arg || !*arg) {
+            print_sysinfo_help();
+        } else if (strcmp(arg, "kernel") == 0) {
+            print_sysinfo_kernel();
+        } else if (strcmp(arg, "memory") == 0) {
+            print_sysinfo_memory();
+        } else {
+            print_sysinfo_help();
+        }
     }
     else if ((strncmp(cmd, "guictl", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ' || cmd[6] == '\t')) ||
              (strncmp(cmd, "guistl", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ' || cmd[6] == '\t'))) {
