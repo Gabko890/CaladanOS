@@ -27,4 +27,4 @@ Currently supporting:
   ISO is available in build/CaladnOS.iso
 
 ## Screenshots
-![shell to operate ramfs](./screenshots/screen1.png)
+![shell to operate ramfs](./screenshots/screen_desktop.png)
