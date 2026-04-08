@@ -141,6 +141,20 @@ CLDTEST_WITH_SUITE("CldRamfs command parsing", cldramfs_command_parsing, cldramf
     assert(copy != NULL);
     assert(copy->type == FILE_NODE);
     assert(strcmp(copy->content, "hello\nworld\n") == 0);
+
+    cldramfs_shell_process_command("sysinfo kernel --json > kernel.json");
+    Node *kernel_json = cldramfs_resolve_path_file("kernel.json", 0);
+    assert(kernel_json != NULL);
+    assert(kernel_json->type == FILE_NODE);
+    assert(strstr(kernel_json->content, "\"kernel_version\":") != NULL);
+    assert(strstr(kernel_json->content, "Kernel version:") == NULL);
+
+    cldramfs_shell_process_command("sysinfo --json > sysinfo.json");
+    Node *sysinfo_json = cldramfs_resolve_path_file("sysinfo.json", 0);
+    assert(sysinfo_json != NULL);
+    assert(sysinfo_json->type == FILE_NODE);
+    assert(strstr(sysinfo_json->content, "\"kernel\":{") != NULL);
+    assert(strstr(sysinfo_json->content, "\"memory\":{") != NULL);
     
     // Cleanup
     cldramfs_free_node(ramfs_root);

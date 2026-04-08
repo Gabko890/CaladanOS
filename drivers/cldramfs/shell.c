@@ -98,10 +98,118 @@ static void print_sysinfo_memory(void) {
     vga_printf("  Segments:  %llu\n", (u64)heap->segment_count);
 }
 
+static void print_json_hex_nibble(u8 value) {
+    value &= 0x0F;
+    vga_putchar(value < 10 ? (char)('0' + value) : (char)('a' + (value - 10)));
+}
+
+static void print_json_string(const char *str) {
+    vga_putchar('"');
+    if (!str) {
+        vga_putchar('"');
+        return;
+    }
+
+    while (*str) {
+        unsigned char c = (unsigned char)*str++;
+        switch (c) {
+            case '"':
+                vga_printf("\\\"");
+                break;
+            case '\\':
+                vga_printf("\\\\");
+                break;
+            case '\b':
+                vga_printf("\\b");
+                break;
+            case '\f':
+                vga_printf("\\f");
+                break;
+            case '\n':
+                vga_printf("\\n");
+                break;
+            case '\r':
+                vga_printf("\\r");
+                break;
+            case '\t':
+                vga_printf("\\t");
+                break;
+            default:
+                if (c < 0x20) {
+                    vga_printf("\\u00");
+                    print_json_hex_nibble(c >> 4);
+                    print_json_hex_nibble(c);
+                } else {
+                    vga_putchar((char)c);
+                }
+                break;
+        }
+    }
+    vga_putchar('"');
+}
+
+static void print_json_string_field(const char *name, const char *value) {
+    print_json_string(name);
+    vga_putchar(':');
+    print_json_string(value);
+}
+
+static void print_sysinfo_kernel_json(void) {
+    vga_putchar('{');
+    print_json_string_field("kernel_version", sysinfo.kernel_version);
+    vga_putchar(',');
+    print_json_string_field("build_label", sysinfo.build_label);
+    vga_putchar(',');
+    print_json_string_field("git_branch", sysinfo.git_branch);
+    vga_putchar(',');
+    print_json_string_field("git_commit", sysinfo.git_commit);
+    vga_putchar(',');
+    print_json_string_field("build_datetime", sysinfo.build_datetime);
+    vga_putchar('}');
+}
+
+static void print_sysinfo_memory_json(void) {
+    kheap_info_t *heap = kheap_get_info();
+    if (!heap || !heap->initialized) {
+        vga_printf("{\"initialized\":false}");
+        return;
+    }
+
+    u64 total = (u64)heap->total_size;
+    u64 used = (u64)heap->used_size;
+    if (used > total) used = total;
+    u64 available = total - used;
+    u64 used_percent = total ? ((used * 100ULL) / total) : 0;
+    u64 available_percent = total ? ((available * 100ULL) / total) : 0;
+
+    vga_printf("{");
+    vga_printf("\"initialized\":true,");
+    vga_printf("\"total_bytes\":%llu,", total);
+    vga_printf("\"total_kb\":%llu,", total / 1024ULL);
+    vga_printf("\"total_mb\":%llu,", total >> 20);
+    vga_printf("\"used_bytes\":%llu,", used);
+    vga_printf("\"used_kb\":%llu,", used / 1024ULL);
+    vga_printf("\"used_percent\":%llu,", used_percent);
+    vga_printf("\"available_bytes\":%llu,", available);
+    vga_printf("\"available_kb\":%llu,", available / 1024ULL);
+    vga_printf("\"available_percent\":%llu,", available_percent);
+    vga_printf("\"segments\":%llu", (u64)heap->segment_count);
+    vga_printf("}");
+}
+
+static void print_sysinfo_all_json(void) {
+    vga_printf("{\"kernel\":");
+    print_sysinfo_kernel_json();
+    vga_printf(",\"memory\":");
+    print_sysinfo_memory_json();
+    vga_printf("}");
+}
+
 static void print_sysinfo_help(void) {
     vga_printf("Usage:\n");
-    vga_printf("  sysinfo kernel\n");
-    vga_printf("  sysinfo memory\n");
+    vga_printf("  sysinfo kernel [--json]\n");
+    vga_printf("  sysinfo memory [--json]\n");
+    vga_printf("  sysinfo --json\n");
 }
 
 static int shell_line_is_command(const char *line, const char *expected) {
@@ -243,6 +351,23 @@ static void parse_two_args(const char *cmd, char *arg1, char *arg2) {
     space2 = skip_whitespace(space2);
     strncpy(arg2, space2, 255);
     arg2[255] = '\0';
+}
+
+static char* shell_next_token(char **args) {
+    char *p = skip_whitespace(*args);
+    if (!*p) {
+        *args = p;
+        return NULL;
+    }
+
+    char *token = p;
+    while (*p && *p != ' ' && *p != '\t') p++;
+    if (*p) {
+        *p = '\0';
+        p++;
+    }
+    *args = p;
+    return token;
 }
 
 int cldramfs_shell_process_command(const char *command_line) {
@@ -439,11 +564,40 @@ int cldramfs_shell_process_command(const char *command_line) {
     }
     else if (strncmp(cmd, "sysinfo", 7) == 0 && (cmd[7] == '\0' || cmd[7] == ' ' || cmd[7] == '\t')) {
         char *arg = find_arg(cmd);
-        if (!arg || !*arg) {
+        int json = 0;
+        int topic = 0;
+        int invalid = 0;
+
+        while (arg && *arg) {
+            char *token = shell_next_token(&arg);
+            if (!token) break;
+
+            if (strcmp(token, "--json") == 0) {
+                json = 1;
+            } else if (strcmp(token, "kernel") == 0 && topic == 0) {
+                topic = 1;
+            } else if (strcmp(token, "memory") == 0 && topic == 0) {
+                topic = 2;
+            } else {
+                invalid = 1;
+                break;
+            }
+        }
+
+        if (invalid || (!json && topic == 0)) {
             print_sysinfo_help();
-        } else if (strcmp(arg, "kernel") == 0) {
+        } else if (json && topic == 0) {
+            print_sysinfo_all_json();
+            vga_putchar('\n');
+        } else if (json && topic == 1) {
+            print_sysinfo_kernel_json();
+            vga_putchar('\n');
+        } else if (json && topic == 2) {
+            print_sysinfo_memory_json();
+            vga_putchar('\n');
+        } else if (topic == 1) {
             print_sysinfo_kernel();
-        } else if (strcmp(arg, "memory") == 0) {
+        } else if (topic == 2) {
             print_sysinfo_memory();
         } else {
             print_sysinfo_help();
