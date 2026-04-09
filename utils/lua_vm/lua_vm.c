@@ -292,6 +292,23 @@ static int l_write(lua_State *L) {
     return 0;
 }
 
+static int l_charat(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    int isnum = 0;
+    long long idx = (long long)lua_tointegerx(L, 2, &isnum);
+    if (!s || !isnum || idx < 1 || (size_t)idx > len) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+
+    char out[2];
+    out[0] = s[idx - 1];
+    out[1] = '\0';
+    lua_pushstring(L, out);
+    return 1;
+}
+
 static int l_cls(lua_State *L) {
     (void)L; vga_printf("\x1b[2J\x1b[H"); return 0;
 }
@@ -380,6 +397,7 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     lua_pushcfunction(L, l_exit); lua_setglobal(L, "exit");
     lua_pushcfunction(L, l_sleep); lua_setglobal(L, "sleep");
     lua_pushcfunction(L, l_write); lua_setglobal(L, "write");
+    lua_pushcfunction(L, l_charat); lua_setglobal(L, "charat");
     lua_pushcfunction(L, l_cls); lua_setglobal(L, "cls");
     lua_pushcfunction(L, l_readtext); lua_setglobal(L, "readtext");
     lua_pushcfunction(L, l_fs_ls); lua_setglobal(L, "fs_ls");
