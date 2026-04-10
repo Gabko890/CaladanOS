@@ -11,6 +11,8 @@ void gui_editor_move(u32 px, u32 py);
 void gui_editor_resize(u32 pw, u32 ph);
 // Redraw full editor content
 void gui_editor_render_all(void);
+// Load a text file into the editor and set it as the current save path.
+int gui_editor_open_path(const char *path);
 // Handle a key event (press/release)
 void gui_editor_handle_key(u8 scancode, int is_extended, int is_pressed);
 // Free editor backing store

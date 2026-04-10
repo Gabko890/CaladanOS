@@ -13,6 +13,8 @@ const char *gui_wallpaper_error(void);
 
 // Optional helpers to open specific windows programmatically
 void gui_open_snake(void);
+void gui_open_editor_file(const char *path);
+void gui_run_lua_in_terminal(const char *path);
 void gui_close_terminal(void);
 void gui_restore_input(void);
 

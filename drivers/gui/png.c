@@ -80,10 +80,10 @@ int gui_png_load(const void *data, u32 size, gui_png_t *out) {
         return 0;
     }
 
-    unsigned char *rgb = 0;
-    error = lodepng_decode24(&rgb, &w, &h, (const unsigned char*)data, (size_t)size);
-    if (error || !rgb || w == 0 || h == 0) {
-        if (rgb) kfree(rgb);
+    unsigned char *rgba = 0;
+    error = lodepng_decode32(&rgba, &w, &h, (const unsigned char*)data, (size_t)size);
+    if (error || !rgba || w == 0 || h == 0) {
+        if (rgba) kfree(rgba);
         if (error) {
             snprintf(g_png_last_error, sizeof(g_png_last_error), "LodePNG %u: %s", error, lodepng_error_text(error));
         } else {
@@ -92,27 +92,47 @@ int gui_png_load(const void *data, u32 size, gui_png_t *out) {
         return 0;
     }
 
-    out->rgb = (u8*)rgb;
+    out->rgba = (u8*)rgba;
     out->width = (u32)w;
     out->height = (u32)h;
-    snprintf(g_png_last_error, sizeof(g_png_last_error), "loaded %ux%u PNG", w, h);
+    out->has_alpha = 0;
+    for (u64 i = 0; i < (u64)w * (u64)h; i++) {
+        if (out->rgba[i * 4u + 3u] != 0xFF) {
+            out->has_alpha = 1;
+            break;
+        }
+    }
+
+    snprintf(g_png_last_error, sizeof(g_png_last_error), "loaded %ux%u %sPNG", w, h, out->has_alpha ? "RGBA " : "RGB ");
     return 1;
 }
 
 void gui_png_free(gui_png_t *png) {
     if (!png) return;
-    if (png->rgb) kfree(png->rgb);
+    if (png->rgba) kfree(png->rgba);
     memset(png, 0, sizeof(*png));
 }
 
 void gui_png_get_rgb(const gui_png_t *png, u32 x, u32 y, u8 rgb[3]) {
     rgb[0] = rgb[1] = rgb[2] = 0;
-    if (!png || !png->rgb || x >= png->width || y >= png->height) return;
+    if (!png || !png->rgba || x >= png->width || y >= png->height) return;
 
-    const u8 *p = png->rgb + ((u64)y * (u64)png->width + (u64)x) * 3u;
+    const u8 *p = png->rgba + ((u64)y * (u64)png->width + (u64)x) * 4u;
     rgb[0] = p[0];
     rgb[1] = p[1];
     rgb[2] = p[2];
+}
+
+void gui_png_get_rgba(const gui_png_t *png, u32 x, u32 y, u8 rgba[4]) {
+    rgba[0] = rgba[1] = rgba[2] = 0;
+    rgba[3] = 0xFF;
+    if (!png || !png->rgba || x >= png->width || y >= png->height) return;
+
+    const u8 *p = png->rgba + ((u64)y * (u64)png->width + (u64)x) * 4u;
+    rgba[0] = p[0];
+    rgba[1] = p[1];
+    rgba[2] = p[2];
+    rgba[3] = p[3];
 }
 
 void gui_png_write_fb_pixel(u8 *dst, u8 fb_bpp, const u8 rgb[3]) {
@@ -134,6 +154,29 @@ void gui_png_write_fb_pixel(u8 *dst, u8 fb_bpp, const u8 rgb[3]) {
         dst[0] = (u8)(v & 0xFF);
         dst[1] = (u8)(v >> 8);
     }
+}
+
+void gui_png_write_fb_pixel_rgba(u8 *dst, u8 fb_bpp, const u8 rgba[4], const u8 bg_rgb[3]) {
+    if (!dst || !rgba) return;
+
+    u8 blended[3];
+    u8 alpha = rgba[3];
+    if (alpha == 0xFF || !bg_rgb) {
+        blended[0] = rgba[0];
+        blended[1] = rgba[1];
+        blended[2] = rgba[2];
+    } else if (alpha == 0) {
+        blended[0] = bg_rgb[0];
+        blended[1] = bg_rgb[1];
+        blended[2] = bg_rgb[2];
+    } else {
+        u16 inv = (u16)(255u - alpha);
+        blended[0] = (u8)(((u16)rgba[0] * alpha + (u16)bg_rgb[0] * inv + 127u) / 255u);
+        blended[1] = (u8)(((u16)rgba[1] * alpha + (u16)bg_rgb[1] * inv + 127u) / 255u);
+        blended[2] = (u8)(((u16)rgba[2] * alpha + (u16)bg_rgb[2] * inv + 127u) / 255u);
+    }
+
+    gui_png_write_fb_pixel(dst, fb_bpp, blended);
 }
 
 #pragma GCC diagnostic push

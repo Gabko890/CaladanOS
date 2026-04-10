@@ -22,7 +22,8 @@ static u32 menu_item2_x = 0, menu_item2_y = 0, menu_item2_w = 0, menu_item2_h = 
 static u32 menu_item3_x = 0, menu_item3_y = 0, menu_item3_w = 0, menu_item3_h = 0; // Image Viewer item
 static u32 menu_item4_x = 0, menu_item4_y = 0, menu_item4_w = 0, menu_item4_h = 0; // Snake item
 static u32 menu_item5_x = 0, menu_item5_y = 0, menu_item5_w = 0, menu_item5_h = 0; // Calculator item
-static u32 menu_item6_x = 0, menu_item6_y = 0, menu_item6_w = 0, menu_item6_h = 0; // Exit GUI item
+static u32 menu_item6_x = 0, menu_item6_y = 0, menu_item6_w = 0, menu_item6_h = 0; // File Browser item
+static u32 menu_item7_x = 0, menu_item7_y = 0, menu_item7_w = 0, menu_item7_h = 0; // Exit GUI item
 static u32 last_rect_x = 0, last_rect_y = 0, last_rect_w = 0, last_rect_h = 0;
 static int last_rect_valid = 0;
 // Live dropdown rect while open (covers all items)
@@ -124,14 +125,16 @@ void gui_bar_render(void) {
         const char* item3 = "Image Viewer";
         const char* item4 = "Snake";
         const char* item5 = "Calculator";
-        const char* item6 = "Exit GUI";
+        const char* item6 = "File Browser";
+        const char* item7 = "Exit GUI";
         u32 itw1 = text_width_px(item1) + 12;
         u32 itw2 = text_width_px(item2) + 12;
         u32 itw3 = text_width_px(item3) + 12;
         u32 itw4 = text_width_px(item4) + 12;
         u32 itw5 = text_width_px(item5) + 12;
         u32 itw6 = text_width_px(item6) + 12;
-        u32 itw  = itw1; if (itw2 > itw) itw = itw2; if (itw3 > itw) itw = itw3; if (itw4 > itw) itw = itw4; if (itw5 > itw) itw = itw5; if (itw6 > itw) itw = itw6;
+        u32 itw7 = text_width_px(item7) + 12;
+        u32 itw  = itw1; if (itw2 > itw) itw = itw2; if (itw3 > itw) itw = itw3; if (itw4 > itw) itw = itw4; if (itw5 > itw) itw = itw5; if (itw6 > itw) itw = itw6; if (itw7 > itw) itw = itw7;
         u32 ix = menu_btn_x;
         u32 iy = GUI_BAR_HEIGHT; // flush under bar to avoid hover gap
         u32 ih = 18;
@@ -153,6 +156,9 @@ void gui_bar_render(void) {
         // Item 6
         draw_rect_rgb(ix, iy + ih * 5, itw, ih, bar_style.separator);
         draw_text(ix + 6, iy + ih * 5 + 2, item6, 0x0F);
+        // Item 7
+        draw_rect_rgb(ix, iy + ih * 6, itw, ih, bar_style.separator);
+        draw_text(ix + 6, iy + ih * 6 + 2, item7, 0x0F);
         // Store hitboxes
         menu_item_x = ix; menu_item_y = iy; menu_item_w = itw; menu_item_h = ih;
         menu_item2_x = ix; menu_item2_y = iy + ih; menu_item2_w = itw; menu_item2_h = ih;
@@ -160,8 +166,9 @@ void gui_bar_render(void) {
         menu_item4_x = ix; menu_item4_y = iy + ih * 3; menu_item4_w = itw; menu_item4_h = ih;
         menu_item5_x = ix; menu_item5_y = iy + ih * 4; menu_item5_w = itw; menu_item5_h = ih;
         menu_item6_x = ix; menu_item6_y = iy + ih * 5; menu_item6_w = itw; menu_item6_h = ih;
-        // Store whole dropdown rect (six items)
-        menu_rect_x = ix; menu_rect_y = iy; menu_rect_w = itw; menu_rect_h = ih * 6;
+        menu_item7_x = ix; menu_item7_y = iy + ih * 6; menu_item7_w = itw; menu_item7_h = ih;
+        // Store whole dropdown rect (seven items)
+        menu_rect_x = ix; menu_rect_y = iy; menu_rect_w = itw; menu_rect_h = ih * 7;
     } else {
         menu_item_x = menu_item_y = menu_item_w = menu_item_h = 0;
         menu_item2_x = menu_item2_y = menu_item2_w = menu_item2_h = 0;
@@ -169,6 +176,7 @@ void gui_bar_render(void) {
         menu_item4_x = menu_item4_y = menu_item4_w = menu_item4_h = 0;
         menu_item5_x = menu_item5_y = menu_item5_w = menu_item5_h = 0;
         menu_item6_x = menu_item6_y = menu_item6_w = menu_item6_h = 0;
+        menu_item7_x = menu_item7_y = menu_item7_w = menu_item7_h = 0;
         menu_rect_x = menu_rect_y = menu_rect_w = menu_rect_h = 0;
     }
 }
@@ -294,7 +302,7 @@ int gui_bar_on_click(u32 x, u32 y, int* out_window_id) {
             gui_bar_render();
             return 6;
         }
-        // Exit GUI
+        // File Browser
         if (x >= menu_item6_x && x < menu_item6_x + menu_item6_w &&
             y >= menu_item6_y && y < menu_item6_y + menu_item6_h) {
             last_rect_x = menu_rect_x; last_rect_y = menu_rect_y;
@@ -303,6 +311,16 @@ int gui_bar_on_click(u32 x, u32 y, int* out_window_id) {
             menu_open = 0;
             gui_bar_render();
             return 7;
+        }
+        // Exit GUI
+        if (x >= menu_item7_x && x < menu_item7_x + menu_item7_w &&
+            y >= menu_item7_y && y < menu_item7_y + menu_item7_h) {
+            last_rect_x = menu_rect_x; last_rect_y = menu_rect_y;
+            last_rect_w = menu_rect_w; last_rect_h = menu_rect_h;
+            last_rect_valid = 1;
+            menu_open = 0;
+            gui_bar_render();
+            return 8;
         }
         // Clicked elsewhere while open: close menu
         last_rect_x = menu_rect_x; last_rect_y = menu_rect_y;

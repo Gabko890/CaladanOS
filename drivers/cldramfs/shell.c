@@ -746,6 +746,27 @@ void cldramfs_shell_handle_gui_terminal_input(void) {
     shell_async_command_scheduled = 0;
 }
 
+void cldramfs_shell_process_gui_command(const char *command_line) {
+    if (!shell_running || !command_line) return;
+
+    if (shell_line_is_command(command_line, "exit")) {
+        gui_close_terminal();
+        return;
+    }
+
+    if (*command_line) {
+        shell_command_from_gui = 1;
+        shell_async_command_scheduled = 0;
+        cldramfs_shell_process_command(command_line);
+        shell_command_from_gui = 0;
+    }
+
+    if (shell_running && !shell_async_command_scheduled) {
+        tty_print_prompt();
+    }
+    shell_async_command_scheduled = 0;
+}
+
 int cldramfs_shell_is_running(void) {
     return shell_running;
 }

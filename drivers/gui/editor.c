@@ -673,6 +673,51 @@ static void editor_save_to_file(const char* path) {
     fb_draw_char_px_scaled(px, py, 'S', 0x20, editor_zoom);
 }
 
+int gui_editor_open_path(const char *path) {
+    if (!path || !*path || !cells) return 0;
+    Node* f = cldramfs_resolve_path_file(path, 0);
+    if (!f || f->type != FILE_NODE || !f->content) return 0;
+
+    editor_clear_all();
+    const char* p = f->content;
+    u32 i = 0;
+    u32 sz = f->content_size;
+    int x = 0;
+    int y = 0;
+    doc_end_x = 0;
+    doc_end_y = 0;
+    while (i < sz && y < rows) {
+        char ch = p[i++];
+        if (ch == '\r') continue;
+        if (ch == '\n') {
+            doc_end_x = 0;
+            doc_end_y = y + 1;
+            y++;
+            x = 0;
+            continue;
+        }
+        if (x < cols) {
+            cells[y * cols + x].ch = (ch ? ch : ' ');
+            x++;
+            doc_end_x = x;
+            doc_end_y = y;
+        }
+    }
+    editor_clamp_eof();
+
+    if (current_path) {
+        kfree(current_path);
+        current_path = 0;
+    }
+    size_t n = strlen(path);
+    current_path = (char*)kmalloc(n + 1);
+    if (current_path) strcpy(current_path, path);
+
+    gui_editor_render_all();
+    gui_editor_draw_overlays();
+    return 1;
+}
+
 void gui_editor_handle_key(u8 scancode, int is_extended, int is_pressed) {
     if (!is_pressed) return;
     u128 ka = ps2_keyarr();
@@ -690,37 +735,7 @@ void gui_editor_handle_key(u8 scancode, int is_extended, int is_pressed) {
             case US_ENTER: {
                 modal_buf[modal_len] = '\0';
                 if (modal_state == MODAL_OPEN) {
-                    Node* f = cldramfs_resolve_path_file(modal_buf, 0);
-                    if (f && f->type == FILE_NODE && f->content) {
-                        // Load file content into grid (truncate/pad)
-                        editor_clear_all();
-                        const char* p = f->content; u32 i = 0; u32 sz = f->content_size;
-                        int x = 0;
-                        int y = 0;
-                        doc_end_x = 0;
-                        doc_end_y = 0;
-                        while (i < sz && y < rows) {
-                            char ch = p[i++];
-                            if (ch == '\r') continue;
-                            if (ch == '\n') {
-                                doc_end_x = 0;
-                                doc_end_y = y + 1;
-                                y++;
-                                x = 0;
-                                continue;
-                            }
-                            if (x < cols) {
-                                cells[y * cols + x].ch = (ch ? ch : ' ');
-                                x++;
-                                doc_end_x = x;
-                                doc_end_y = y;
-                            }
-                        }
-                        editor_clamp_eof();
-                        // Set current path
-                        if (current_path) { kfree(current_path); current_path = 0; }
-                        size_t n = strlen(modal_buf); current_path = (char*)kmalloc(n + 1); if (current_path) strcpy(current_path, modal_buf);
-                    }
+                    (void)gui_editor_open_path(modal_buf);
                 } else if (modal_state == MODAL_NEW) {
                     if (current_path) { kfree(current_path); current_path = 0; }
                     size_t n = strlen(modal_buf); current_path = (char*)kmalloc(n + 1); if (current_path) strcpy(current_path, modal_buf);

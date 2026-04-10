@@ -8,6 +8,7 @@
 #include <kmalloc.h>
 #include <lua_vm.h>
 #include <string.h>
+#include <stdio.h>
 #include "gui.h"
 #include "term.h"
 #include "editor.h"
@@ -17,7 +18,9 @@
 #include "viewer.h"
 #include "snake.h"
 #include "calc.h"
+#include "browser.h"
 #include "window.h"
+#include <cldramfs/shell.h>
 
 #define GUI_FRAME_TITLE_H   24
 #define GUI_FRAME_PAD_X     6
@@ -31,6 +34,7 @@ typedef enum {
     APP_VIEWER,
     APP_SNAKE,
     APP_CALC,
+    APP_BROWSER,
     APP_COUNT
 } app_kind_t;
 
@@ -306,6 +310,8 @@ static void app_render(gui_window_t *win, void *ctx) {
         gui_snake_render_all();
     } else if (app->kind == APP_CALC) {
         gui_calc_render_all();
+    } else if (app->kind == APP_BROWSER) {
+        gui_browser_render_all();
     }
 }
 
@@ -318,6 +324,7 @@ static void app_move(gui_window_t *win, u32 content_x, u32 content_y, void *ctx)
     else if (app->kind == APP_VIEWER) gui_viewer_move(content_x, content_y);
     else if (app->kind == APP_SNAKE) gui_snake_move(content_x, content_y);
     else if (app->kind == APP_CALC) gui_calc_move(content_x, content_y);
+    else if (app->kind == APP_BROWSER) gui_browser_move(content_x, content_y);
 }
 
 static void app_resize(gui_window_t *win, u32 content_w, u32 content_h, void *ctx) {
@@ -331,6 +338,7 @@ static void app_resize(gui_window_t *win, u32 content_w, u32 content_h, void *ct
         else if (app->kind == APP_VIEWER) gui_viewer_init(content_x, content_y, content_w, content_h);
         else if (app->kind == APP_SNAKE) gui_snake_init(content_x, content_y, content_w, content_h);
         else if (app->kind == APP_CALC) gui_calc_init(content_x, content_y, content_w, content_h);
+        else if (app->kind == APP_BROWSER) gui_browser_init(content_x, content_y, content_w, content_h);
         app->initialized = 1;
         return;
     }
@@ -339,6 +347,7 @@ static void app_resize(gui_window_t *win, u32 content_w, u32 content_h, void *ct
     else if (app->kind == APP_VIEWER) gui_viewer_resize(content_w, content_h);
     else if (app->kind == APP_SNAKE) gui_snake_resize(content_w, content_h);
     else if (app->kind == APP_CALC) gui_calc_resize(content_w, content_h);
+    else if (app->kind == APP_BROWSER) gui_browser_resize(content_w, content_h);
 }
 
 static void app_close(gui_window_t *win, void *ctx) {
@@ -356,6 +365,8 @@ static void app_close(gui_window_t *win, void *ctx) {
         gui_snake_free();
     } else if (app->kind == APP_CALC) {
         gui_calc_free();
+    } else if (app->kind == APP_BROWSER) {
+        gui_browser_free();
     }
     app->initialized = 0;
     app->win = 0;
@@ -365,6 +376,9 @@ static void app_default_size(app_kind_t kind, u32 *w, u32 *h) {
     if (kind == APP_CALC) {
         *w = 220;
         *h = 240;
+    } else if (kind == APP_BROWSER) {
+        *w = scr_w > 640 ? 640 : scr_w / 2;
+        *h = scr_h > 460 ? 420 : scr_h / 2;
     } else {
         *w = scr_w / 2;
         *h = scr_h / 2;
@@ -464,6 +478,16 @@ static int app_click(gui_window_t *win, u32 x, u32 y) {
     if (app->kind == APP_CALC) {
         return gui_calc_on_click(x, y);
     }
+    if (app->kind == APP_BROWSER) {
+        return gui_browser_on_click(x, y);
+    }
+    return 0;
+}
+
+static int app_right_click(gui_window_t *win, u32 x, u32 y) {
+    gui_app_t *app = app_from_window(win);
+    if (!app || !app->initialized) return 0;
+    if (app->kind == APP_BROWSER) return gui_browser_on_right_click(x, y);
     return 0;
 }
 
@@ -472,6 +496,7 @@ static int app_move_hover(gui_window_t *win, u32 x, u32 y) {
     if (!app || !app->initialized) return 0;
     if (app->kind == APP_EDITOR) return gui_editor_on_move(x, y);
     if (app->kind == APP_VIEWER) return gui_viewer_on_move(x, y);
+    if (app->kind == APP_BROWSER) return gui_browser_on_move(x, y);
     return 0;
 }
 
@@ -481,6 +506,7 @@ static void handle_bar_action(int action, int clicked_window_id) {
     else if (action == 4) open_app(APP_VIEWER, "Viewer", 0);
     else if (action == 5) open_app(APP_SNAKE, "Snake", 0);
     else if (action == 6) open_app(APP_CALC, "Calculator", GUI_WINDOW_FIXED_SIZE);
+    else if (action == 7) open_app(APP_BROWSER, "File Browser", 0);
     else if (action == 2 && clicked_window_id > 0) {
         gui_window_t *win = gui_window_by_id(clicked_window_id);
         if (win) gui_window_restore(win);
@@ -502,16 +528,25 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
 
     int left_pressed = (buttons & 0x01) != 0;
     int left_was_pressed = (last_buttons & 0x01) != 0;
+    int right_pressed = (buttons & 0x02) != 0;
+    int right_was_pressed = (last_buttons & 0x02) != 0;
     int redraw = 0;
 
     if (gui_bar_on_move(cursor_x, cursor_y)) redraw = 1;
     if (app_move_hover(gui_window_active(), cursor_x, cursor_y)) redraw = 1;
 
-    if (left_pressed && !left_was_pressed) {
+    if (right_pressed && !right_was_pressed) {
+        gui_window_t *win = gui_window_at(cursor_x, cursor_y);
+        if (win) {
+            gui_window_focus(win);
+            update_terminal_sink();
+            if (app_right_click(win, cursor_x, cursor_y)) redraw = 1;
+        }
+    } else if (left_pressed && !left_was_pressed) {
         if (cursor_y < GUI_BAR_HEIGHT || gui_bar_is_menu_open()) {
             int clicked_window_id = -1;
             int action = gui_bar_on_click(cursor_x, cursor_y, &clicked_window_id);
-            if (action == 7) {
+            if (action == 8) {
                 gui_stop();
                 last_buttons = buttons;
                 return;
@@ -520,9 +555,11 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
             redraw = 1;
         } else {
             gui_window_t *win = gui_window_at(cursor_x, cursor_y);
+            gui_window_t *active_before = gui_window_active();
             int app_consumed = app_click(win, cursor_x, cursor_y);
             if (win && app_consumed) {
-                gui_window_focus(win);
+                gui_window_t *active_after = gui_window_active();
+                if (active_after == active_before || active_after == win) gui_window_focus(win);
                 update_terminal_sink();
                 redraw = 1;
             } else if (gui_window_mouse_down(cursor_x, cursor_y)) {
@@ -552,6 +589,40 @@ void gui_open_snake(void) {
     gui_cursor_undraw();
     gui_render_desktop();
     gui_cursor_draw(cursor_x, cursor_y);
+}
+
+void gui_open_editor_file(const char *path) {
+    if (!fb_console_present() || !path || !*path) return;
+    fb_get_resolution(&scr_w, &scr_h);
+    gui_window_t *win = open_app(APP_EDITOR, "Editor", 0);
+    if (!win) return;
+    (void)gui_editor_open_path(path);
+    gui_window_set_title(win, "Editor");
+    if (gui_active) {
+        gui_cursor_undraw();
+        gui_render_desktop();
+        gui_cursor_draw(cursor_x, cursor_y);
+    }
+}
+
+void gui_run_lua_in_terminal(const char *path) {
+    if (!fb_console_present() || !path || !*path) return;
+    fb_get_resolution(&scr_w, &scr_h);
+    gui_window_t *win = open_app(APP_TERMINAL, "Terminal", 0);
+    if (!win) return;
+    gui_window_focus(win);
+    update_terminal_sink();
+
+    char cmd[320];
+    snprintf(cmd, sizeof(cmd), "lua %s", path);
+    vga_printf("%s\n", cmd);
+    cldramfs_shell_process_gui_command(cmd);
+
+    if (gui_active) {
+        gui_cursor_undraw();
+        gui_render_desktop();
+        gui_cursor_draw(cursor_x, cursor_y);
+    }
 }
 
 void gui_close_terminal(void) {
@@ -637,6 +708,11 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
         gui_snake_handle_key(scancode, is_extended, is_pressed);
     } else if (app->kind == APP_CALC) {
         gui_calc_handle_key(scancode, is_extended, is_pressed);
+    } else if (app->kind == APP_BROWSER) {
+        gui_browser_handle_key(scancode, is_extended, is_pressed);
+        gui_cursor_undraw();
+        gui_render_desktop();
+        gui_cursor_draw(cursor_x, cursor_y);
     }
 }
 

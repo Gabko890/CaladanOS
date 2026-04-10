@@ -6,6 +6,7 @@ void cldramfs_shell_init(void);
 void cldramfs_shell_handle_input(void);
 void cldramfs_shell_handle_gui_terminal_input(void);
 int cldramfs_shell_process_command(const char *command_line);
+void cldramfs_shell_process_gui_command(const char *command_line);
 int cldramfs_shell_is_running(void);
 
 #endif // CLDRAMFS_SHELL_H

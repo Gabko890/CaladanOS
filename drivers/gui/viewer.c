@@ -79,14 +79,17 @@ static int viewer_load_image(const char* path) {
 }
 
 static void viewer_build_scaled_row_into(u32 dst_y, u8* out_row) {
-    if (!v_png.rgb || v_pw == 0 || v_ph == 0) return;
+    if (!v_png.rgba || v_pw == 0 || v_ph == 0) return;
     u32 sy = (u64)dst_y * (u64)v_png.height / (u64)v_ph;
     u8* d = out_row;
     for (u32 dx = 0; dx < v_pw; dx++) {
         u32 sx = (u64)dx * (u64)v_png.width / (u64)v_pw;
-        u8 rgb[3];
-        gui_png_get_rgb(&v_png, sx, sy, rgb);
-        gui_png_write_fb_pixel(d, v_fb_bpp, rgb);
+        u8 rgba[4];
+        u8 bg[3];
+        u8 checker = (((dx / 8u) + (dst_y / 8u)) & 1u) ? 0xDD : 0xFF;
+        bg[0] = bg[1] = bg[2] = checker;
+        gui_png_get_rgba(&v_png, sx, sy, rgba);
+        gui_png_write_fb_pixel_rgba(d, v_fb_bpp, rgba, bg);
         d += v_fb_bpp;
     }
 }
@@ -118,7 +121,7 @@ void gui_viewer_resize(u32 pw, u32 ph) {
 void gui_viewer_render_all(void) {
     if (!v_fb_bpp || !v_linebuf || !v_pw || !v_ph) return;
     // If no image loaded, fill region with white background
-    if (!v_png.rgb) {
+    if (!v_png.rgba) {
         fb_fill_rect_rgb(v_px, v_py, v_pw, v_ph, 0xFF, 0xFF, 0xFF);
         return;
     }
@@ -237,7 +240,7 @@ int gui_viewer_on_click(u32 px, u32 py) {
 
 int gui_viewer_on_move(u32 px, u32 py) { (void)px; (void)py; return 0; }
 
-int gui_viewer_has_image(void) { return v_png.rgb != 0; }
+int gui_viewer_has_image(void) { return v_png.rgba != 0; }
 
 void gui_viewer_get_image_dims(u32* w, u32* h) {
     if (w) *w = v_png.width;

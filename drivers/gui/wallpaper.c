@@ -84,17 +84,18 @@ int gui_wallpaper_load(const char* path) {
 }
 
 int gui_wallpaper_is_loaded(void) {
-    return g_wp_ready && g_png.rgb && g_linebuf && g_wp_w && g_wp_h && g_wp_bpp;
+    return g_wp_ready && g_png.rgba && g_linebuf && g_wp_w && g_wp_h && g_wp_bpp;
 }
 
 static void build_scaled_row_into(u32 dst_y, u32 dst_x, u32 dst_w, u8* out_row) {
     u32 sy = (u64)dst_y * (u64)g_png.height / (u64)g_wp_h;
+    const u8 bg[3] = { 0x00, 0x00, 0x00 };
     u8* d = out_row;
     for (u32 dx = 0; dx < dst_w; dx++) {
         u32 sx = (u64)(dst_x + dx) * (u64)g_png.width / (u64)g_wp_w;
-        u8 rgb[3];
-        gui_png_get_rgb(&g_png, sx, sy, rgb);
-        gui_png_write_fb_pixel(d, g_wp_bpp, rgb);
+        u8 rgba[4];
+        gui_png_get_rgba(&g_png, sx, sy, rgba);
+        gui_png_write_fb_pixel_rgba(d, g_wp_bpp, rgba, bg);
         d += g_wp_bpp;
     }
 }
