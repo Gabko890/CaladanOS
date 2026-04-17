@@ -1,4 +1,5 @@
 #include "snake.h"
+#include "gui.h"
 #include <fb/fb_console.h>
 #include <kmalloc.h>
 #include <pit/pit.h>
@@ -133,6 +134,15 @@ static void reset_game(void) {
 
 static void render_all(void) {
     clear_area();
+    if (game_over) {
+        const char* msg = "GAME OVER";
+        u32 tw = text_width_px(msg);
+        int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
+        u32 tx = s_px + (s_pw > tw ? (s_pw - tw) / 2 : 0);
+        u32 ty = s_py + (s_ph > (u32)ch ? (s_ph - (u32)ch) / 2 : 0);
+        draw_text(tx, ty, msg, 0x0C);
+        return;
+    }
     draw_grid();
     // Apple
     draw_cell(ax, ay, COL_APPLE);
@@ -161,14 +171,6 @@ static void step_snake(void) {
         u32 hz = pit_get_hz(); if (!hz) hz = 1000;
         u64 wait = ((u64)2000 * (u64)hz) / 1000ULL; if (wait == 0) wait = 1;
         game_over_until = pit_ticks() + wait;
-        clear_area();
-        // Center "GAME OVER" in red
-        const char* msg = "GAME OVER";
-        u32 tw = text_width_px(msg);
-        int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
-        u32 tx = s_px + (s_pw > tw ? (s_pw - tw) / 2 : 0);
-        u32 ty = s_py + (s_ph > (u32)ch ? (s_ph - (u32)ch) / 2 : 0);
-        draw_text(tx, ty, msg, 0x0C); // bright red
         return;
     }
 
@@ -181,13 +183,6 @@ static void step_snake(void) {
             u32 hz = pit_get_hz(); if (!hz) hz = 1000;
             u64 wait = ((u64)2000 * (u64)hz) / 1000ULL; if (wait == 0) wait = 1;
             game_over_until = pit_ticks() + wait;
-            clear_area();
-            const char* msg = "GAME OVER";
-            u32 tw = text_width_px(msg);
-            int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
-            u32 tx = s_px + (s_pw > tw ? (s_pw - tw) / 2 : 0);
-            u32 ty = s_py + (s_ph > (u32)ch ? (s_ph - (u32)ch) / 2 : 0);
-            draw_text(tx, ty, msg, 0x0C);
             return;
         }
     }
@@ -215,7 +210,7 @@ static void on_pit_tick(void) {
         if (pit_ticks() >= game_over_until) {
             game_over = 0;
             reset_game();
-            render_all();
+            gui_request_redraw();
         }
         return;
     }
@@ -224,8 +219,9 @@ static void on_pit_tick(void) {
         tick_accum -= step_ticks;
         step_snake();
         if (!game_over) {
-            // Best-effort redraw; in IRQ context — keep it simple
-            render_all();
+            gui_request_redraw();
+        } else {
+            gui_request_redraw();
         }
     }
 }
@@ -250,7 +246,7 @@ void gui_snake_init(u32 px, u32 py, u32 pw, u32 ph) {
     tick_accum = 0;
     // Game state
     reset_game();
-    render_all();
+    gui_request_redraw();
     // Attach PIT callback
     pit_set_callback(on_pit_tick);
 }
@@ -270,21 +266,24 @@ void gui_snake_render_all(void) { render_all(); }
 
 void gui_snake_handle_key(u8 sc, int is_extended, int is_pressed) {
     if (!is_pressed) return;
+    int changed = 0;
     if (is_extended) {
         switch (sc) {
-            case US_ARROW_UP:    if (!game_over) { if (dir != 2) dir = 0; if (paused) paused = 0; } break;
-            case US_ARROW_RIGHT: if (!game_over) { if (dir != 3) dir = 1; if (paused) paused = 0; } break;
-            case US_ARROW_DOWN:  if (!game_over) { if (dir != 0) dir = 2; if (paused) paused = 0; } break;
-            case US_ARROW_LEFT:  if (!game_over) { if (dir != 1) dir = 3; if (paused) paused = 0; } break;
+            case US_ARROW_UP:    if (!game_over) { if (dir != 2) dir = 0; if (paused) paused = 0; changed = 1; } break;
+            case US_ARROW_RIGHT: if (!game_over) { if (dir != 3) dir = 1; if (paused) paused = 0; changed = 1; } break;
+            case US_ARROW_DOWN:  if (!game_over) { if (dir != 0) dir = 2; if (paused) paused = 0; changed = 1; } break;
+            case US_ARROW_LEFT:  if (!game_over) { if (dir != 1) dir = 3; if (paused) paused = 0; changed = 1; } break;
             default: break;
         }
+        if (changed) gui_request_redraw();
         return;
     }
     switch (sc) {
-        case US_SPACE: paused = !paused; break;
-        case US_R: reset_game(); render_all(); break;
+        case US_SPACE: paused = !paused; changed = 1; break;
+        case US_R: reset_game(); changed = 1; break;
         default: break;
     }
+    if (changed) gui_request_redraw();
 }
 
 void gui_snake_free(void) {

@@ -17,5 +17,8 @@ void gui_open_editor_file(const char *path);
 void gui_run_lua_in_terminal(const char *path);
 void gui_close_terminal(void);
 void gui_restore_input(void);
+void gui_request_redraw(void);
+void gui_pump_redraw(void);
+int gui_is_composing(void);
 
 #endif // GUI_GUI_H

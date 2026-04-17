@@ -1,4 +1,5 @@
 #include "term.h"
+#include "gui.h"
 #include <fb/fb_console.h>
 #include <vgaio.h>
 #include <kmalloc.h>
@@ -19,9 +20,14 @@ static inline u8 invert_attr(u8 a) {
     return (u8)(((a & 0x0F) << 4) | ((a >> 4) & 0x0F));
 }
 
+static int term_can_draw(void) {
+    return gui_is_composing();
+}
+
 static void term_draw_cell(int x, int y) {
     if (!cells) return;
     if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+    if (!term_can_draw()) return;
     TermCell c = cells[y * cols + x];
     u32 px = t_x + (u32)x * (u32)cell_w;
     u32 py = t_y + (u32)y * (u32)cell_h;
@@ -38,6 +44,7 @@ static void term_caret_undraw(void) {
 static void term_caret_draw(void) {
     if (!cells) return;
     if (cur_x < 0 || cur_y < 0 || cur_x >= cols || cur_y >= rows) return;
+    if (!term_can_draw()) return;
     TermCell c = cells[cur_y * cols + cur_x];
     u8 inv = invert_attr(c.attr);
     u32 px = t_x + (u32)cur_x * (u32)cell_w;
@@ -71,6 +78,7 @@ static void term_reset_state(void) {
 
 static void term_render_all(void) {
     if (!cells) return;
+    if (!term_can_draw()) return;
     // Draw background implicitly via glyph bg for each cell
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < cols; x++) {
@@ -88,7 +96,7 @@ static void term_clear_all(void) {
     if (cells) {
         for (int i = 0; i < rows * cols; i++) { cells[i].ch = ' '; cells[i].attr = cur_attr; }
     }
-    fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
+    if (term_can_draw()) fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
     cur_x = 0; cur_y = 0;
     caret_drawn = 0; term_caret_draw();
 }
@@ -99,7 +107,7 @@ static void term_clear_line_full(void) {
         for (int x = 0; x < cols; x++) { cells[cur_y * cols + x].ch = ' '; cells[cur_y * cols + x].attr = cur_attr; }
     }
     u32 py = t_y + (u32)cur_y * (u32)cell_h;
-    fb_fill_rect_attr(t_x, py, t_w, (u32)cell_h, cur_attr);
+    if (term_can_draw()) fb_fill_rect_attr(t_x, py, t_w, (u32)cell_h, cur_attr);
     caret_drawn = 0; term_caret_draw();
 }
 
@@ -110,7 +118,7 @@ static void term_clear_to_eol(void) {
     u32 px = t_x + (u32)cur_x * (u32)cell_w;
     u32 pw = t_w - (u32)cur_x * (u32)cell_w;
     u32 py = t_y + (u32)cur_y * (u32)cell_h;
-    fb_fill_rect_attr(px, py, pw, (u32)cell_h, cur_attr);
+    if (term_can_draw()) fb_fill_rect_attr(px, py, pw, (u32)cell_h, cur_attr);
     caret_drawn = 0; term_caret_draw();
 }
 
@@ -205,7 +213,7 @@ static void term_putc(char c) {
         }
         u32 px = t_x + (u32)cur_x * (u32)cell_w;
         u32 py = t_y + (u32)cur_y * (u32)cell_h;
-        fb_draw_char_px(px, py, c, cur_attr);
+        if (term_can_draw()) fb_draw_char_px(px, py, c, cur_attr);
         cur_x++;
         if (cur_x >= cols) { cur_x = 0; cur_y++; }
     }
@@ -272,8 +280,9 @@ void gui_term_init(u32 px, u32 py, u32 pw, u32 ph) {
         for (int i = 0; i < rows * cols; i++) { cells[i].ch = ' '; cells[i].attr = cur_attr; }
     }
     // Clear pixels to background
-    fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
+    if (term_can_draw()) fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
     caret_drawn = 0; term_caret_draw();
+    gui_request_redraw();
 }
 
 void gui_term_set_attr(u8 attr) {
@@ -296,12 +305,14 @@ void gui_term_putchar(char c) {
             } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
                 if (t_buf_pos < (int)sizeof(t_buf) - 1) t_buf[t_buf_pos++] = c;
                 term_handle_ansi();
+                gui_request_redraw();
                 return;
             } else { t_state = T_ANSI_NORMAL; t_buf_pos = 0; }
             break;
     }
     // Normal char
     term_putc(c);
+    gui_request_redraw();
 }
 
 void gui_term_attach(void) {
@@ -317,6 +328,7 @@ void gui_term_detach(void) {
 
 void gui_term_move(u32 px, u32 py) {
     t_x = px; t_y = py;
+    gui_request_redraw();
 }
 
 void gui_term_resize(u32 pw, u32 ph) {
@@ -360,8 +372,9 @@ void gui_term_resize(u32 pw, u32 ph) {
     if (cur_x < 0) cur_x = 0;
     if (cur_y < 0) cur_y = 0;
     caret_drawn = 0;
-    fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
+    if (term_can_draw()) fb_fill_rect_attr(t_x, t_y, t_w, t_h, cur_attr);
     term_render_all();
+    gui_request_redraw();
 }
 
 void gui_term_render_all(void) {

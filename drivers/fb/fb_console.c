@@ -53,6 +53,13 @@ static int g_has_gui_font = 0;
 
 static u8 g_color = 0x07; // VGA light grey on black
 
+static volatile u8 *g_target_fb = 0;
+static u32 g_target_pitch = 0;
+static u32 g_target_width = 0;
+static u32 g_target_height = 0;
+static u8 g_target_bytes_pp = 0;
+static int g_target_active = 0;
+
 // VGA 16-color palette in RGB
 static const u8 PALETTE[16][3] = {
     {0x00,0x00,0x00}, {0x00,0x00,0xAA}, {0x00,0xAA,0x00}, {0x00,0xAA,0xAA},
@@ -63,14 +70,20 @@ static const u8 PALETTE[16][3] = {
 
 static inline u8 fg_idx(u8 v) { return v & 0x0F; }
 static inline u8 bg_idx(u8 v) { return (v >> 4) & 0x0F; }
+static inline volatile u8* draw_fb(void) { return g_target_active ? g_target_fb : g_fb.fb; }
+static inline u32 draw_pitch(void) { return g_target_active ? g_target_pitch : g_fb.pitch; }
+static inline u32 draw_width(void) { return g_target_active ? g_target_width : g_fb.fb_width; }
+static inline u32 draw_height(void) { return g_target_active ? g_target_height : g_fb.fb_height; }
+static inline u8 draw_bytespp(void) { return g_target_active ? g_target_bytes_pp : g_fb.bytes_pp; }
 
 static void set_pixel(u32 x, u32 y, const u8 rgb[3]) {
     if (!g_has_fb) return;
-    if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;
-    u32 off = y * g_fb.pitch + x * g_fb.bytes_pp;
-    volatile u8* p = g_fb.fb + off;
+    if (x >= draw_width() || y >= draw_height()) return;
+    u8 bytes_pp = draw_bytespp();
+    u32 off = y * draw_pitch() + x * bytes_pp;
+    volatile u8* p = draw_fb() + off;
 
-    switch (g_fb.bytes_pp) {
+    switch (bytes_pp) {
         case 4:
             p[0] = rgb[2]; p[1] = rgb[1]; p[2] = rgb[0]; p[3] = 0xFF; // B,G,R,A
             break;
@@ -94,9 +107,9 @@ static void set_pixel(u32 x, u32 y, const u8 rgb[3]) {
 
 static void fill_rect(u32 x, u32 y, u32 w, u32 h, const u8 rgb[3]) {
     if (!g_has_fb) return;
-    if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;
-    u32 x2 = x + w; if (x2 > g_fb.fb_width) x2 = g_fb.fb_width;
-    u32 y2 = y + h; if (y2 > g_fb.fb_height) y2 = g_fb.fb_height;
+    if (x >= draw_width() || y >= draw_height()) return;
+    u32 x2 = x + w; if (x2 > draw_width()) x2 = draw_width();
+    u32 y2 = y + h; if (y2 > draw_height()) y2 = draw_height();
     for (u32 yy = y; yy < y2; yy++) {
         for (u32 xx = x; xx < x2; xx++) {
             set_pixel(xx, yy, rgb);
@@ -123,9 +136,9 @@ static void draw_glyph(const psf_font_t* font, u32 cell_x, u32 cell_y, u8 ch, co
     const u8* glyph = font->glyphs + idx * (u32)font->glyph_size;
 
     for (int y = 0; y < font->cell_h; y++) {
-        if (py + (u32)y >= g_fb.fb_height) break;
+        if (py + (u32)y >= draw_height()) break;
         for (int x = 0; x < font->cell_w; x++) {
-            if (px + (u32)x >= g_fb.fb_width) break;
+            if (px + (u32)x >= draw_width()) break;
             const u8* rgb = glyph_pixel_is_set(font, glyph, x, y) ? fg : bg;
             set_pixel(px + (u32)x, py + (u32)y, rgb);
         }
@@ -432,16 +445,47 @@ void fb_copy_out(u32 x, u32 y, u32 w, u32 h, u8* dst) {
 
 void fb_blit(u32 x, u32 y, u32 w, u32 h, const u8* src) {
     if (!g_has_fb || !src) return;
-    if (x >= g_fb.fb_width || y >= g_fb.fb_height) return;
-    u32 x2 = x + w; if (x2 > g_fb.fb_width) x2 = g_fb.fb_width;
-    u32 y2 = y + h; if (y2 > g_fb.fb_height) y2 = g_fb.fb_height;
+    if (x >= draw_width() || y >= draw_height()) return;
+    u32 x2 = x + w; if (x2 > draw_width()) x2 = draw_width();
+    u32 y2 = y + h; if (y2 > draw_height()) y2 = draw_height();
     u32 in_w = x2 - x;
     u32 in_h = y2 - y;
-    u32 bpp = g_fb.bytes_pp;
+    u32 bpp = draw_bytespp();
     for (u32 yy = 0; yy < in_h; yy++) {
-        volatile u8* dst = g_fb.fb + (y + yy) * g_fb.pitch + x * bpp;
+        volatile u8* dst = draw_fb() + (y + yy) * draw_pitch() + x * bpp;
         const u8* s = src + yy * (in_w * bpp);
         for (u32 i = 0; i < in_w * bpp; i++) dst[i] = s[i];
+    }
+}
+
+void fb_set_render_target(u8 *buffer, u32 width, u32 height, u32 pitch) {
+    if (!g_has_fb || !buffer || !width || !height || !pitch) return;
+    g_target_fb = buffer;
+    g_target_width = width;
+    g_target_height = height;
+    g_target_pitch = pitch;
+    g_target_bytes_pp = g_fb.bytes_pp;
+    g_target_active = 1;
+}
+
+void fb_clear_render_target(void) {
+    g_target_active = 0;
+    g_target_fb = 0;
+    g_target_width = 0;
+    g_target_height = 0;
+    g_target_pitch = 0;
+    g_target_bytes_pp = 0;
+}
+
+void fb_present_buffer(const u8 *buffer, u32 width, u32 height, u32 pitch) {
+    if (!g_has_fb || !buffer) return;
+    if (width > g_fb.fb_width) width = g_fb.fb_width;
+    if (height > g_fb.fb_height) height = g_fb.fb_height;
+    u32 row_bytes = width * (u32)g_fb.bytes_pp;
+    for (u32 y = 0; y < height; y++) {
+        volatile u8 *dst = g_fb.fb + y * g_fb.pitch;
+        const u8 *src = buffer + y * pitch;
+        for (u32 i = 0; i < row_bytes; i++) dst[i] = src[i];
     }
 }
 
@@ -480,9 +524,9 @@ void fb_draw_char_px(u32 px, u32 py, char c, u8 vga_attr) {
     if (idx >= (u32)font->glyph_count) idx = 0;
     const u8* glyph = font->glyphs + idx * (u32)font->glyph_size;
     for (int y2 = 0; y2 < font->cell_h; y2++) {
-        if (py + (u32)y2 >= g_fb.fb_height) break;
+        if (py + (u32)y2 >= draw_height()) break;
         for (int x2 = 0; x2 < font->cell_w; x2++) {
-            if (px + (u32)x2 >= g_fb.fb_width) break;
+            if (px + (u32)x2 >= draw_width()) break;
             const u8* rgb = glyph_pixel_is_set(font, glyph, x2, y2) ? fg : bg;
             set_pixel(px + (u32)x2, py + (u32)y2, rgb);
         }
@@ -511,9 +555,9 @@ void fb_draw_char_px_scaled(u32 px, u32 py, char c, u8 vga_attr, int scale) {
             u32 sx0 = px + (u32)(x2 * scale);
             u32 sy0 = py + (u32)(y2 * scale);
             for (int sy = 0; sy < scale; sy++) {
-                if (sy0 + (u32)sy >= g_fb.fb_height) break;
+                if (sy0 + (u32)sy >= draw_height()) break;
                 for (int sx = 0; sx < scale; sx++) {
-                    if (sx0 + (u32)sx >= g_fb.fb_width) break;
+                    if (sx0 + (u32)sx >= draw_width()) break;
                     set_pixel(sx0 + (u32)sx, sy0 + (u32)sy, rgb);
                 }
             }
@@ -530,9 +574,9 @@ void fb_draw_char_px_nobg(u32 px, u32 py, char c, u8 fg_index) {
     if (idx >= (u32)font->glyph_count) idx = 0;
     const u8* glyph = font->glyphs + idx * (u32)font->glyph_size;
     for (int y2 = 0; y2 < font->cell_h; y2++) {
-        if (py + (u32)y2 >= g_fb.fb_height) break;
+        if (py + (u32)y2 >= draw_height()) break;
         for (int x2 = 0; x2 < font->cell_w; x2++) {
-            if (px + (u32)x2 >= g_fb.fb_width) break;
+            if (px + (u32)x2 >= draw_width()) break;
             if (glyph_pixel_is_set(font, glyph, x2, y2)) {
                 set_pixel(px + (u32)x2, py + (u32)y2, fg);
             }

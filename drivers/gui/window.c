@@ -507,11 +507,11 @@ void gui_window_render_drag_preview_all(void) {
     for (int i = 0; i < z_count; i++) {
         gui_window_t *win = &windows[z_order[i]];
         if (!win->used || win->minimized) continue;
-        if (win == drag_win && drag_mode != DRAG_NONE) continue;
-        else gui_window_render(win);
-    }
-    if (drag_win && drag_mode != DRAG_NONE) {
-        draw_outline(drag_preview_x, drag_preview_y, drag_preview_w, drag_preview_h);
+        if (win == drag_win && drag_mode != DRAG_NONE) {
+            draw_outline(drag_preview_x, drag_preview_y, drag_preview_w, drag_preview_h);
+        } else {
+            draw_outline(win->x, win->y, win->w, win->h);
+        }
     }
 }
 

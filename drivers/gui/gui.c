@@ -7,6 +7,8 @@
 #include <cldramfs/tty.h>
 #include <kmalloc.h>
 #include <lua_vm.h>
+#include <deferred.h>
+#include <pit/pit.h>
 #include <string.h>
 #include <stdio.h>
 #include "gui.h"
@@ -27,6 +29,7 @@
 #define GUI_FRAME_PAD_Y     10
 #define GUI_CONFIG_PATH     "/etc/gui/gui.lua"
 #define GUI_DEFAULT_WALLPAPER "/usr/share/wallpapers/default.png"
+#define GUI_TARGET_FPS      30
 
 typedef enum {
     APP_TERMINAL = 0,
@@ -56,6 +59,12 @@ static u32 cursor_save_x = 0, cursor_save_y = 0;
 static u32 cursor_save_w = 0, cursor_save_h = 0;
 static int cursor_saved = 0;
 static u8 fb_bpp = 0;
+static u8 *gui_backbuf = 0;
+static u32 gui_back_pitch = 0;
+static volatile int gui_frame_dirty = 0;
+static volatile int gui_frame_scheduled = 0;
+static u64 gui_next_frame_tick = 0;
+static volatile int gui_composing = 0;
 
 static u8 gui_bg[3] = { 0x20, 0x20, 0x20 };
 static char gui_config_wallpaper[256] = GUI_DEFAULT_WALLPAPER;
@@ -65,6 +74,9 @@ static int gui_config_loaded = 0;
 
 static void gui_stop(void);
 static void gui_key_handler(u8 scancode, int is_extended, int is_pressed);
+static void gui_render_desktop(void);
+static void gui_render_drag_preview(void);
+static void gui_cursor_draw(u32 x, u32 y);
 
 static void copy_path(char *dst, const char *src) {
     if (!dst || !src) return;
@@ -229,32 +241,113 @@ static void gui_clear_all(void) {
     else draw_rect_rgb(0, 0, scr_w, scr_h, gui_bg);
 }
 
-static void gui_clear_workspace(void) {
-    if (scr_h <= GUI_BAR_HEIGHT) return;
-    u32 y = GUI_BAR_HEIGHT;
-    u32 h = scr_h - GUI_BAR_HEIGHT;
-    if (gui_wallpaper_is_loaded()) gui_wallpaper_redraw_rect(0, y, scr_w, h);
-    else draw_rect_rgb(0, y, scr_w, h, gui_bg);
+static u64 gui_irq_save(void) {
+    u64 flags = 0;
+    __asm__ volatile("pushfq; popq %0; cli" : "=r"(flags) :: "memory");
+    return flags;
+}
+
+static void gui_irq_restore(u64 flags) {
+    if (flags & (1ULL << 9)) __asm__ volatile("sti" ::: "memory");
+    else __asm__ volatile("cli" ::: "memory");
+}
+
+static u64 gui_frame_interval_ticks(void) {
+    u32 hz = pit_get_hz();
+    if (!hz) hz = 1000;
+    u64 ticks = (u64)hz / GUI_TARGET_FPS;
+    return ticks ? ticks : 1;
+}
+
+static void gui_render_frame_now(void) {
+    if (!gui_active) return;
+
+    if (gui_backbuf && gui_back_pitch) {
+        u64 flags = gui_irq_save();
+        fb_set_render_target(gui_backbuf, scr_w, scr_h, gui_back_pitch);
+        gui_composing = 1;
+        gui_clear_all();
+        if (gui_window_is_dragging()) gui_window_render_drag_preview_all();
+        else gui_window_render_all();
+        gui_bar_render();
+        gui_composing = 0;
+        fb_clear_render_target();
+        fb_present_buffer(gui_backbuf, scr_w, scr_h, gui_back_pitch);
+        gui_irq_restore(flags);
+    } else {
+        gui_composing = 1;
+        gui_clear_all();
+        if (gui_window_is_dragging()) gui_window_render_drag_preview_all();
+        else gui_window_render_all();
+        gui_bar_render();
+        gui_composing = 0;
+    }
+
+    cursor_saved = 0;
+    gui_cursor_draw(cursor_x, cursor_y);
+}
+
+static void gui_deferred_render_frame(void *arg) {
+    (void)arg;
+    gui_frame_scheduled = 0;
+    if (!gui_active || !gui_frame_dirty) return;
+
+    u64 now = pit_ticks();
+    if (now < gui_next_frame_tick) return;
+    gui_frame_dirty = 0;
+    gui_next_frame_tick = now + gui_frame_interval_ticks();
+    gui_render_frame_now();
+}
+
+static void gui_schedule_frame_if_due(void) {
+    if (!gui_active || !gui_frame_dirty || gui_frame_scheduled) return;
+    if (pit_ticks() < gui_next_frame_tick) return;
+    if (deferred_schedule(gui_deferred_render_frame, 0) == 0) {
+        gui_frame_scheduled = 1;
+    }
+}
+
+static void gui_pit_tick(void) {
+    gui_schedule_frame_if_due();
+}
+
+static void gui_request_frame(void) {
+    if (!gui_active) return;
+    gui_frame_dirty = 1;
+    gui_schedule_frame_if_due();
+}
+
+void gui_request_redraw(void) {
+    gui_request_frame();
+}
+
+void gui_pump_redraw(void) {
+    if (!gui_active || !gui_frame_dirty) return;
+    u64 now = pit_ticks();
+    if (now < gui_next_frame_tick) return;
+    gui_frame_dirty = 0;
+    gui_next_frame_tick = now + gui_frame_interval_ticks();
+    gui_render_frame_now();
+}
+
+int gui_is_composing(void) {
+    return gui_composing != 0;
+}
+
+static void gui_force_frame(void) {
+    if (!gui_active) return;
+    gui_frame_dirty = 0;
+    gui_frame_scheduled = 0;
+    gui_next_frame_tick = pit_ticks() + gui_frame_interval_ticks();
+    gui_render_frame_now();
 }
 
 static void gui_render_desktop(void) {
-    gui_clear_all();
-    gui_window_render_all();
-    gui_bar_render();
+    gui_request_frame();
 }
 
 static void gui_render_drag_preview(void) {
-    gui_clear_workspace();
-    gui_window_render_drag_preview_all();
-}
-
-static void gui_cursor_undraw(void) {
-    if (cursor_saved && cursor_save) {
-        if (cursor_save_w > 0 && cursor_save_h > 0) {
-            fb_blit(cursor_save_x, cursor_save_y, cursor_save_w, cursor_save_h, cursor_save);
-        }
-        cursor_saved = 0;
-    }
+    gui_request_frame();
 }
 
 static void gui_cursor_draw(u32 x, u32 y) {
@@ -517,6 +610,8 @@ static void handle_bar_action(int action, int clicked_window_id) {
 static void gui_mouse_cb(int dx, int dy, u8 buttons) {
     if (!gui_active) return;
 
+    u32 old_cursor_x = cursor_x;
+    u32 old_cursor_y = cursor_y;
     int nx = (int)cursor_x + dx;
     int ny = (int)cursor_y + dy;
     if (nx < 0) nx = 0;
@@ -573,12 +668,10 @@ static void gui_mouse_cb(int dx, int dy, u8 buttons) {
         if (gui_window_mouse_up(cursor_x, cursor_y)) redraw = 1;
     }
 
-    gui_cursor_undraw();
-    if (redraw) {
+    if (redraw || cursor_x != old_cursor_x || cursor_y != old_cursor_y) {
         if (gui_window_is_dragging()) gui_render_drag_preview();
         else gui_render_desktop();
     }
-    gui_cursor_draw(cursor_x, cursor_y);
     last_buttons = buttons;
 }
 
@@ -586,9 +679,7 @@ void gui_open_snake(void) {
     if (!fb_console_present()) return;
     fb_get_resolution(&scr_w, &scr_h);
     open_app(APP_SNAKE, "Snake", 0);
-    gui_cursor_undraw();
     gui_render_desktop();
-    gui_cursor_draw(cursor_x, cursor_y);
 }
 
 void gui_open_editor_file(const char *path) {
@@ -599,9 +690,7 @@ void gui_open_editor_file(const char *path) {
     (void)gui_editor_open_path(path);
     gui_window_set_title(win, "Editor");
     if (gui_active) {
-        gui_cursor_undraw();
         gui_render_desktop();
-        gui_cursor_draw(cursor_x, cursor_y);
     }
 }
 
@@ -619,9 +708,7 @@ void gui_run_lua_in_terminal(const char *path) {
     cldramfs_shell_process_gui_command(cmd);
 
     if (gui_active) {
-        gui_cursor_undraw();
         gui_render_desktop();
-        gui_cursor_draw(cursor_x, cursor_y);
     }
 }
 
@@ -631,9 +718,7 @@ void gui_close_terminal(void) {
         gui_window_destroy(app->win);
         update_terminal_sink();
         if (gui_active) {
-            gui_cursor_undraw();
             gui_render_desktop();
-            gui_cursor_draw(cursor_x, cursor_y);
         }
     }
 }
@@ -646,9 +731,7 @@ int gui_reload_config(void) {
     int ok = gui_load_config(0);
     if (gui_active) {
         (void)gui_wallpaper_load(gui_active_wallpaper);
-        gui_cursor_undraw();
         gui_render_desktop();
-        gui_cursor_draw(cursor_x, cursor_y);
     }
     return ok;
 }
@@ -657,9 +740,7 @@ int gui_reload_wallpaper(void) {
     if (!gui_config_loaded) (void)gui_load_config(gui_temp_wallpaper);
     if (!gui_active) return ramfs_file_exists(gui_active_wallpaper);
     int ok = gui_wallpaper_load(gui_active_wallpaper);
-    gui_cursor_undraw();
     gui_render_desktop();
-    gui_cursor_draw(cursor_x, cursor_y);
     return ok;
 }
 
@@ -669,9 +750,7 @@ int gui_change_wallpaper(const char *path) {
     gui_temp_wallpaper = 1;
     if (!gui_active) return 1;
     int ok = gui_wallpaper_load(gui_active_wallpaper);
-    gui_cursor_undraw();
     gui_render_desktop();
-    gui_cursor_draw(cursor_x, cursor_y);
     return ok;
 }
 
@@ -689,9 +768,7 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
 
     if (win->popup_open) {
         if (gui_window_popup_key(win, scancode, is_extended, key_shift)) {
-            gui_cursor_undraw();
             gui_render_desktop();
-            gui_cursor_draw(cursor_x, cursor_y);
         }
         return;
     }
@@ -710,9 +787,11 @@ static void gui_key_handler(u8 scancode, int is_extended, int is_pressed) {
         gui_calc_handle_key(scancode, is_extended, is_pressed);
     } else if (app->kind == APP_BROWSER) {
         gui_browser_handle_key(scancode, is_extended, is_pressed);
-        gui_cursor_undraw();
         gui_render_desktop();
-        gui_cursor_draw(cursor_x, cursor_y);
+    }
+
+    if (app->kind != APP_TERMINAL && app->kind != APP_BROWSER) {
+        gui_render_desktop();
     }
 }
 
@@ -738,6 +817,14 @@ void gui_start(void) {
         shell_resume();
         return;
     }
+    gui_back_pitch = scr_w * (u32)fb_bpp;
+    gui_backbuf = (u8*)kmalloc((size_t)((u64)gui_back_pitch * (u64)scr_h));
+    if (!gui_backbuf) {
+        kfree(cursor_save);
+        cursor_save = 0;
+        shell_resume();
+        return;
+    }
 
     for (int i = 0; i < APP_COUNT; i++) {
         apps[i].kind = (app_kind_t)i;
@@ -750,12 +837,15 @@ void gui_start(void) {
     (void)gui_wallpaper_load(gui_active_wallpaper);
     gui_window_manager_init();
     gui_bar_init();
-    gui_render_desktop();
-    gui_cursor_draw(cursor_x, cursor_y);
 
+    gui_active = 1;
+    gui_next_frame_tick = pit_ticks();
+    gui_frame_dirty = 0;
+    gui_frame_scheduled = 0;
+    (void)pit_add_callback(gui_pit_tick);
+    gui_force_frame();
     ps2_mouse_set_callback(gui_mouse_cb);
     ps2_set_key_callback(gui_key_handler);
-    gui_active = 1;
     last_buttons = 0;
     key_shift = 0;
 }
@@ -763,8 +853,10 @@ void gui_start(void) {
 static void gui_stop(void) {
     if (!gui_active) return;
     gui_active = 0;
+    pit_remove_callback(gui_pit_tick);
     ps2_mouse_set_callback(0);
     ps2_set_key_callback(0);
+    fb_clear_render_target();
     gui_term_detach();
     gui_window_destroy_all();
     vga_clear_screen();
@@ -774,6 +866,13 @@ static void gui_stop(void) {
         cursor_save = 0;
         cursor_saved = 0;
     }
+    if (gui_backbuf) {
+        kfree(gui_backbuf);
+        gui_backbuf = 0;
+        gui_back_pitch = 0;
+    }
+    gui_frame_dirty = 0;
+    gui_frame_scheduled = 0;
     gui_temp_wallpaper = 0;
     copy_path(gui_active_wallpaper, gui_config_wallpaper);
 }

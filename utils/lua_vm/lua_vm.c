@@ -60,6 +60,26 @@ static void vm_key_getch(u8 sc, int is_extended, int is_pressed) {
     if (c) { vm_ch = c; vm_ch_ready = 1; vm_waiting_ch = 0; }
 }
 
+static void vm_wait_for_interrupt(void) {
+    gui_pump_redraw();
+    __asm__ volatile("hlt");
+}
+
+static void vm_sleep_ms(u64 ms) {
+    u32 hz = pit_get_hz();
+    if (!hz) {
+        sleep_ms(ms);
+        return;
+    }
+    u64 target_ticks = (ms * (u64)hz) / 1000ULL;
+    if (target_ticks == 0) target_ticks = 1;
+    u64 until = pit_ticks() + target_ticks;
+    while (pit_ticks() < until) {
+        vm_wait_for_interrupt();
+    }
+    gui_pump_redraw();
+}
+
 // ---- Lua C functions ----
 
 static int l_print(lua_State *L) {
@@ -142,7 +162,9 @@ static int l_input(lua_State *L) {
     for (;;) {
         vm_ch_ready = 0; vm_waiting_ch = 1;
         ps2_set_key_callback(vm_key_getch);
-        while (!vm_ch_ready) { }
+        while (!vm_ch_ready) {
+            vm_wait_for_interrupt();
+        }
         vm_restore_input_owner();
 
         char c = vm_ch;
@@ -178,7 +200,9 @@ static int l_input(lua_State *L) {
 static int l_getch(lua_State *L) {
     (void)L;
     vm_ch_ready = 0; vm_waiting_ch = 1; ps2_set_key_callback(vm_key_getch);
-    while (!vm_ch_ready) { }
+    while (!vm_ch_ready) {
+        vm_wait_for_interrupt();
+    }
     vm_restore_input_owner();
     char tmp[2] = { vm_ch, '\0' };
     lua_pushstring(L, tmp);
@@ -282,7 +306,7 @@ static int l_sleep(lua_State *L) {
         }
     }
     if (ms <= 0) return 0;
-    sleep_ms((u64)ms);
+    vm_sleep_ms((u64)ms);
     return 0;
 }
 

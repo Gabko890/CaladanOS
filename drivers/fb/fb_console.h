@@ -38,6 +38,9 @@ void fb_fill_rect_rgb(u32 x, u32 y, u32 w, u32 h, u8 r, u8 g, u8 b);
 u8  fb_get_bytespp(void);
 void fb_copy_out(u32 x, u32 y, u32 w, u32 h, u8* dst);
 void fb_blit(u32 x, u32 y, u32 w, u32 h, const u8* src);
+void fb_set_render_target(u8 *buffer, u32 width, u32 height, u32 pitch);
+void fb_clear_render_target(void);
+void fb_present_buffer(const u8 *buffer, u32 width, u32 height, u32 pitch);
 
 // Text/glyph helpers for windowed terminals
 int  fb_font_get_cell_size(int* out_w, int* out_h);

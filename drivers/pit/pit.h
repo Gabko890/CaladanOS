@@ -10,9 +10,11 @@ void sleep_ms(u64 ms);
 // Query configured PIT frequency (Hz)
 u32 pit_get_hz(void);
 
-// Optional per-tick callback (called from IRQ0 handler). Only one supported.
+// Optional per-tick callbacks (called from IRQ0 handler).
 typedef void (*pit_tick_cb_t)(void);
 void pit_set_callback(pit_tick_cb_t cb);
+int pit_add_callback(pit_tick_cb_t cb);
+void pit_remove_callback(pit_tick_cb_t cb);
 
 // IRQ0 handler trampoline (called from ASM stub)
 void handle_pit(void);

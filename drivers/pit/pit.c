@@ -11,10 +11,16 @@ static volatile u64 g_ticks = 0;
 static u32 g_hz = 0;
 static pit_tick_cb_t g_cb = 0;
 
+#define PIT_EXTRA_CALLBACKS 8
+static pit_tick_cb_t g_extra_cbs[PIT_EXTRA_CALLBACKS] = {0};
+
 void handle_pit(void) {
     g_ticks++;
     if (g_cb) {
         g_cb();
+    }
+    for (int i = 0; i < PIT_EXTRA_CALLBACKS; i++) {
+        if (g_extra_cbs[i]) g_extra_cbs[i]();
     }
     pic_send_eoi(0);
 }
@@ -46,6 +52,27 @@ u32 pit_get_hz(void) {
 
 void pit_set_callback(pit_tick_cb_t cb) {
     g_cb = cb;
+}
+
+int pit_add_callback(pit_tick_cb_t cb) {
+    if (!cb) return -1;
+    for (int i = 0; i < PIT_EXTRA_CALLBACKS; i++) {
+        if (g_extra_cbs[i] == cb) return 0;
+    }
+    for (int i = 0; i < PIT_EXTRA_CALLBACKS; i++) {
+        if (!g_extra_cbs[i]) {
+            g_extra_cbs[i] = cb;
+            return 0;
+        }
+    }
+    return -2;
+}
+
+void pit_remove_callback(pit_tick_cb_t cb) {
+    if (!cb) return;
+    for (int i = 0; i < PIT_EXTRA_CALLBACKS; i++) {
+        if (g_extra_cbs[i] == cb) g_extra_cbs[i] = 0;
+    }
 }
 
 void sleep_ms(u64 ms) {
