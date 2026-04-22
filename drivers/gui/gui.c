@@ -54,10 +54,6 @@ static u8 last_buttons = 0;
 static int key_shift = 0;
 static gui_app_t apps[APP_COUNT];
 
-static u8 *cursor_save = 0;
-static u32 cursor_save_x = 0, cursor_save_y = 0;
-static u32 cursor_save_w = 0, cursor_save_h = 0;
-static int cursor_saved = 0;
 static u8 fb_bpp = 0;
 static u8 *gui_backbuf = 0;
 static u32 gui_back_pitch = 0;
@@ -270,6 +266,7 @@ static void gui_render_frame_now(void) {
         if (gui_window_is_dragging()) gui_window_render_drag_preview_all();
         else gui_window_render_all();
         gui_bar_render();
+        gui_cursor_draw(cursor_x, cursor_y);
         gui_composing = 0;
         fb_clear_render_target();
         fb_present_buffer(gui_backbuf, scr_w, scr_h, gui_back_pitch);
@@ -280,11 +277,9 @@ static void gui_render_frame_now(void) {
         if (gui_window_is_dragging()) gui_window_render_drag_preview_all();
         else gui_window_render_all();
         gui_bar_render();
+        gui_cursor_draw(cursor_x, cursor_y);
         gui_composing = 0;
     }
-
-    cursor_saved = 0;
-    gui_cursor_draw(cursor_x, cursor_y);
 }
 
 static void gui_deferred_render_frame(void *arg) {
@@ -351,20 +346,13 @@ static void gui_render_drag_preview(void) {
 }
 
 static void gui_cursor_draw(u32 x, u32 y) {
-    if (!cursor_save) return;
     u32 w = CURSOR_W, h = CURSOR_H, sw = 0, sh = 0;
     fb_get_resolution(&sw, &sh);
     if (x >= sw || y >= sh) return;
     if (x + w > sw) w = sw - x;
     if (y + h > sh) h = sh - y;
-    cursor_save_w = w;
-    cursor_save_h = h;
-    cursor_save_x = x;
-    cursor_save_y = y;
-    fb_copy_out(x, y, w, h, cursor_save);
-    cursor_saved = 1;
-    for (u32 yy = 0; yy < CURSOR_H; yy++) {
-        for (u32 xx = 0; xx < CURSOR_W; xx++) {
+    for (u32 yy = 0; yy < h; yy++) {
+        for (u32 xx = 0; xx < w; xx++) {
             u8 v = CURSOR_PIXELS[yy][xx];
             if (v == 1) fb_draw_pixel(x + xx, y + yy, 0x00, 0x00, 0x00);
             else if (v == 0) fb_draw_pixel(x + xx, y + yy, 0xFF, 0xFF, 0xFF);
@@ -812,16 +800,9 @@ void gui_start(void) {
         shell_resume();
         return;
     }
-    cursor_save = (u8*)kmalloc(CURSOR_W * CURSOR_H * fb_bpp);
-    if (!cursor_save) {
-        shell_resume();
-        return;
-    }
     gui_back_pitch = scr_w * (u32)fb_bpp;
     gui_backbuf = (u8*)kmalloc((size_t)((u64)gui_back_pitch * (u64)scr_h));
     if (!gui_backbuf) {
-        kfree(cursor_save);
-        cursor_save = 0;
         shell_resume();
         return;
     }
@@ -861,11 +842,6 @@ static void gui_stop(void) {
     gui_window_destroy_all();
     vga_clear_screen();
     shell_resume();
-    if (cursor_save) {
-        kfree(cursor_save);
-        cursor_save = 0;
-        cursor_saved = 0;
-    }
     if (gui_backbuf) {
         kfree(gui_backbuf);
         gui_backbuf = 0;
