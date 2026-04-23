@@ -58,6 +58,7 @@ struct gui_window {
     u32 h;
     u32 min_w;
     u32 min_h;
+    u32 title_left_inset;
     char title[GUI_WINDOW_TITLE_MAX];
     char menu_items[GUI_WINDOW_MENU_MAX][GUI_WINDOW_MENU_TEXT_MAX];
     int menu_count;
@@ -75,6 +76,7 @@ gui_window_t* gui_window_create(const char *title, u32 x, u32 y, u32 w, u32 h, u
 void gui_window_destroy(gui_window_t *win);
 void gui_window_destroy_all(void);
 void gui_window_set_title(gui_window_t *win, const char *title);
+void gui_window_reserve_title_left(gui_window_t *win, const char *label);
 void gui_window_set_min_size(gui_window_t *win, u32 min_w, u32 min_h);
 void gui_window_add_menu_item(gui_window_t *win, const char *label);
 void gui_window_open_popup(gui_window_t *win, const char *title, const char *initial);

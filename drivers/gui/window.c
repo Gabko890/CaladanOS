@@ -158,7 +158,12 @@ static void minimize_button_rect(gui_window_t *win, u32 *x, u32 *y, u32 *w, u32 
 
 static u32 title_text_x(gui_window_t *win) {
     u32 x = win->x + 8;
-    if (win->menu_count > 0) x += text_width("File") + 18;
+    u32 inset = win->title_left_inset;
+    if (win->menu_count > 0) {
+        u32 menu_inset = text_width("File") + 18;
+        if (menu_inset > inset) inset = menu_inset;
+    }
+    x += inset;
     return x;
 }
 
@@ -301,6 +306,11 @@ void gui_window_set_title(gui_window_t *win, const char *title) {
     if (!win || !win->used) return;
     copy_text(win->title, GUI_WINDOW_TITLE_MAX, title ? title : "Window");
     gui_bar_update_window_title(win->id, win->title);
+}
+
+void gui_window_reserve_title_left(gui_window_t *win, const char *label) {
+    if (!win || !win->used) return;
+    win->title_left_inset = label ? text_width(label) + 18 : 0;
 }
 
 void gui_window_set_min_size(gui_window_t *win, u32 min_w, u32 min_h) {

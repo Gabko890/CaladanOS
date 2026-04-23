@@ -496,6 +496,9 @@ static gui_window_t *open_app(app_kind_t kind, const char *title, u32 flags) {
     cb.ctx = app;
 
     app->win = gui_window_create(title, x, y, w, h, flags, cb);
+    if (app->win && (kind == APP_EDITOR || kind == APP_VIEWER)) {
+        gui_window_reserve_title_left(app->win, "File");
+    }
     if (app->win && kind == APP_TERMINAL) {
         gui_term_attach();
         tty_global_reset_line();
