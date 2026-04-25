@@ -42,6 +42,7 @@ static u32 mi_new_x = 0, mi_new_y = 0, mi_new_w = 0, mi_new_h = 0;
 static u32 mi_save_x = 0, mi_save_y = 0, mi_save_w = 0, mi_save_h = 0;
 // Titlebar geometry (provided by GUI)
 static u32 tb_x = 0, tb_y = 0, tb_w = 0, tb_h = 0;
+static u8 title_button_color[3] = { 0x48, 0x64, 0x7A };
 
 static char* current_path = 0;
 
@@ -381,9 +382,7 @@ static void editor_draw_overlays(void) {
     u32 tw = text_width_px(label) + 12;
     u32 bx = tb_x + EDITOR_TITLE_BTN_PAD; u32 by = tb_y + 2; u32 bh = (tb_h > 4) ? (tb_h - 4) : tb_h;
     if (tw + 2 * EDITOR_TITLE_BTN_PAD > tb_w) tw = (tb_w > 2 * EDITOR_TITLE_BTN_PAD) ? (tb_w - 2 * EDITOR_TITLE_BTN_PAD) : 0;
-    // Slight contrast button
-    u8 btn_col[3] = { 0x40, 0x40, 0x44 };
-    if (tw) fb_fill_rect_rgb(bx, by, tw, bh, btn_col[0], btn_col[1], btn_col[2]);
+    if (tw) fb_fill_rect_rgb(bx, by, tw, bh, title_button_color[0], title_button_color[1], title_button_color[2]);
     draw_text(bx + 6, tb_y + 3, label, 0x0F);
     file_btn_x = bx; file_btn_y = by; file_btn_w = tw; file_btn_h = bh;
 
@@ -858,8 +857,13 @@ int gui_editor_on_click(u32 px, u32 py) {
 
 int gui_editor_on_move(u32 px, u32 py) { (void)px; (void)py; return 0; }
 
-void gui_editor_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h) {
+void gui_editor_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h, const u8 button_color[3]) {
     tb_x = win_x + 2; tb_y = win_y + 2; tb_w = win_w - 4; tb_h = title_h;
+    if (button_color) {
+        title_button_color[0] = button_color[0];
+        title_button_color[1] = button_color[1];
+        title_button_color[2] = button_color[2];
+    }
 }
 
 void gui_editor_draw_overlays(void) { editor_draw_overlays(); editor_draw_modal(); }

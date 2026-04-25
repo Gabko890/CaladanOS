@@ -9,6 +9,7 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv);
 
 // Execute a Lua config file and copy selected global string values.
 int cld_luavm_read_config_strings(const char *path, const char **keys, char **out, const u32 *out_sizes, int count);
+int cld_luavm_read_config_u32s(const char *path, const char **keys, u32 *out, int count);
 
 // Deferred runner helpers for shell scheduling
 void cld_luavm_run_deferred(void *arg);

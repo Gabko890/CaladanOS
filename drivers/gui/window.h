@@ -21,6 +21,8 @@ typedef struct {
     u8 active_title[3];
     u8 border[3];
     u8 menu[3];
+    u8 title_button[3];
+    u8 active_title_button[3];
     u8 popup[3];
     u8 close_button[3];
     u8 minimize_button[3];
@@ -77,6 +79,7 @@ void gui_window_destroy(gui_window_t *win);
 void gui_window_destroy_all(void);
 void gui_window_set_title(gui_window_t *win, const char *title);
 void gui_window_reserve_title_left(gui_window_t *win, const char *label);
+void gui_window_get_title_button_color(gui_window_t *win, u8 out[3]);
 void gui_window_set_min_size(gui_window_t *win, u32 min_w, u32 min_h);
 void gui_window_add_menu_item(gui_window_t *win, const char *label);
 void gui_window_open_popup(gui_window_t *win, const char *title, const char *initial);

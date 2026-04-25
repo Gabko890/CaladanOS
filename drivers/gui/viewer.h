@@ -14,7 +14,7 @@ void gui_viewer_render_all(void);
 void gui_viewer_free(void);
 
 // Titlebar integration and simple UI ("Open" button + dropdown)
-void gui_viewer_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h);
+void gui_viewer_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h, const u8 button_color[3]);
 void gui_viewer_draw_overlays(void);
 // Return 1 if UI changed (open/close menu or selection). Sets internal flag if an image was loaded.
 int gui_viewer_on_click(u32 px, u32 py);

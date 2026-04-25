@@ -21,6 +21,7 @@ static int v_new_image = 0;
 
 // Titlebar/Open menu UI state
 static u32 v_tb_x = 0, v_tb_y = 0, v_tb_w = 0, v_tb_h = 0;
+static u8 v_title_button_color[3] = { 0x48, 0x64, 0x7A };
 static int v_menu_open = 0;
 static u32 v_open_btn_x = 0, v_open_btn_y = 0, v_open_btn_w = 0, v_open_btn_h = 0;
 static u32 v_menu_x = 0, v_menu_y = 0, v_menu_w = 0, v_menu_h = 0;
@@ -157,11 +158,16 @@ static u32 viewer_text_width_px(const char* s) {
     return (u32)cw * n;
 }
 
-void gui_viewer_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h) {
+void gui_viewer_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h, const u8 button_color[3]) {
     v_tb_x = win_x + 2;
     v_tb_y = win_y + 2;
     v_tb_w = win_w - 4;
     v_tb_h = title_h;
+    if (button_color) {
+        v_title_button_color[0] = button_color[0];
+        v_title_button_color[1] = button_color[1];
+        v_title_button_color[2] = button_color[2];
+    }
     // Position File button at left, vertically centered inside titlebar
     const char* lbl = "File";
     int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
@@ -177,8 +183,7 @@ void gui_viewer_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h) {
 
 void gui_viewer_draw_overlays(void) {
     // Draw File button (Editor-style subtle button)
-    u8 btn_col[3] = { 0x40, 0x40, 0x44 };
-    if (v_open_btn_w && v_open_btn_h) fb_fill_rect_rgb(v_open_btn_x, v_open_btn_y, v_open_btn_w, v_open_btn_h, btn_col[0], btn_col[1], btn_col[2]);
+    if (v_open_btn_w && v_open_btn_h) fb_fill_rect_rgb(v_open_btn_x, v_open_btn_y, v_open_btn_w, v_open_btn_h, v_title_button_color[0], v_title_button_color[1], v_title_button_color[2]);
     // Vertically center text inside the button
     int cw = 8, ch = 16; (void)fb_font_get_cell_size(&cw, &ch);
     u32 ty = v_open_btn_y + (v_open_btn_h > (u32)ch ? ((v_open_btn_h - (u32)ch) / 2) : 0);

@@ -10,6 +10,8 @@ active_title = "#6F82C0"
 border = "#0E1018"
 
 menu = "#30364E"
+title_button = "#4C5878"
+active_title_button = "#7B8FCC"
 popup = "#282D42"
 
 close_button = "#E05D72"

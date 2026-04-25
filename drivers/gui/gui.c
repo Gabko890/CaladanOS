@@ -29,7 +29,9 @@
 #define GUI_FRAME_PAD_Y     10
 #define GUI_CONFIG_PATH     "/etc/gui/gui.lua"
 #define GUI_DEFAULT_WALLPAPER "/usr/share/wallpapers/default.png"
-#define GUI_TARGET_FPS      30
+#define GUI_DEFAULT_TARGET_FPS 30
+#define GUI_MIN_TARGET_FPS     1
+#define GUI_MAX_TARGET_FPS     120
 
 typedef enum {
     APP_TERMINAL = 0,
@@ -61,6 +63,7 @@ static volatile int gui_frame_dirty = 0;
 static volatile int gui_frame_scheduled = 0;
 static u64 gui_next_frame_tick = 0;
 static volatile int gui_composing = 0;
+static u32 gui_target_fps = GUI_DEFAULT_TARGET_FPS;
 
 static u8 gui_bg[3] = { 0x20, 0x20, 0x20 };
 static char gui_config_wallpaper[256] = GUI_DEFAULT_WALLPAPER;
@@ -115,6 +118,8 @@ static void gui_load_style(void) {
         { 0x48, 0x64, 0x7A },
         { 0x00, 0x00, 0x00 },
         { 0x40, 0x40, 0x44 },
+        { 0x4C, 0x58, 0x78 },
+        { 0x7B, 0x8F, 0xCC },
         { 0x33, 0x33, 0x36 },
         { 0xCC, 0x33, 0x33 },
         { 0xCC, 0xAA, 0x33 },
@@ -134,6 +139,8 @@ static void gui_load_style(void) {
     char active_title[16] = "";
     char border[16] = "";
     char menu[16] = "";
+    char title_button[16] = "";
+    char active_title_button[16] = "";
     char popup[16] = "";
     char close_button[16] = "";
     char minimize_button[16] = "";
@@ -150,6 +157,8 @@ static void gui_load_style(void) {
         "active_title",
         "border",
         "menu",
+        "title_button",
+        "active_title_button",
         "popup",
         "close_button",
         "minimize_button",
@@ -166,6 +175,8 @@ static void gui_load_style(void) {
         active_title,
         border,
         menu,
+        title_button,
+        active_title_button,
         popup,
         close_button,
         minimize_button,
@@ -182,6 +193,8 @@ static void gui_load_style(void) {
         sizeof(active_title),
         sizeof(border),
         sizeof(menu),
+        sizeof(title_button),
+        sizeof(active_title_button),
         sizeof(popup),
         sizeof(close_button),
         sizeof(minimize_button),
@@ -192,13 +205,15 @@ static void gui_load_style(void) {
         sizeof(bar_separator),
     };
 
-    (void)cld_luavm_read_config_strings(GUI_CONFIG_PATH, keys, values, sizes, 14);
+    (void)cld_luavm_read_config_strings(GUI_CONFIG_PATH, keys, values, sizes, 16);
     (void)parse_color(background, gui_bg);
     (void)parse_color(window, window_style.window);
     (void)parse_color(title, window_style.title);
     (void)parse_color(active_title, window_style.active_title);
     (void)parse_color(border, window_style.border);
     (void)parse_color(menu, window_style.menu);
+    (void)parse_color(title_button, window_style.title_button);
+    (void)parse_color(active_title_button, window_style.active_title_button);
     (void)parse_color(popup, window_style.popup);
     (void)parse_color(close_button, window_style.close_button);
     (void)parse_color(minimize_button, window_style.minimize_button);
@@ -214,11 +229,19 @@ static void gui_load_style(void) {
 
 static int gui_load_config(int preserve_temp_wallpaper) {
     copy_path(gui_config_wallpaper, GUI_DEFAULT_WALLPAPER);
+    gui_target_fps = GUI_DEFAULT_TARGET_FPS;
 
     const char *keys[] = { "wallpaper" };
     char *values[] = { gui_config_wallpaper };
     const u32 sizes[] = { sizeof(gui_config_wallpaper) };
     int found = cld_luavm_read_config_strings(GUI_CONFIG_PATH, keys, values, sizes, 1);
+    const char *num_keys[] = { "target_fps" };
+    u32 num_values[] = { gui_target_fps };
+    if (cld_luavm_read_config_u32s(GUI_CONFIG_PATH, num_keys, num_values, 1) > 0) {
+        gui_target_fps = num_values[0];
+    }
+    if (gui_target_fps < GUI_MIN_TARGET_FPS) gui_target_fps = GUI_MIN_TARGET_FPS;
+    if (gui_target_fps > GUI_MAX_TARGET_FPS) gui_target_fps = GUI_MAX_TARGET_FPS;
     if (!preserve_temp_wallpaper) {
         copy_path(gui_active_wallpaper, gui_config_wallpaper);
         gui_temp_wallpaper = 0;
@@ -251,7 +274,7 @@ static void gui_irq_restore(u64 flags) {
 static u64 gui_frame_interval_ticks(void) {
     u32 hz = pit_get_hz();
     if (!hz) hz = 1000;
-    u64 ticks = (u64)hz / GUI_TARGET_FPS;
+    u64 ticks = (u64)hz / (u64)gui_target_fps;
     return ticks ? ticks : 1;
 }
 
@@ -380,11 +403,15 @@ static void app_render(gui_window_t *win, void *ctx) {
     if (app->kind == APP_TERMINAL) {
         gui_term_render_all();
     } else if (app->kind == APP_EDITOR) {
-        gui_editor_set_titlebar(win->x, win->y, win->w, GUI_FRAME_TITLE_H);
+        u8 button_color[3];
+        gui_window_get_title_button_color(win, button_color);
+        gui_editor_set_titlebar(win->x, win->y, win->w, GUI_FRAME_TITLE_H, button_color);
         gui_editor_render_all();
         gui_editor_draw_overlays();
     } else if (app->kind == APP_VIEWER) {
-        gui_viewer_set_titlebar(win->x, win->y, win->w, GUI_FRAME_TITLE_H);
+        u8 button_color[3];
+        gui_window_get_title_button_color(win, button_color);
+        gui_viewer_set_titlebar(win->x, win->y, win->w, GUI_FRAME_TITLE_H, button_color);
         gui_viewer_render_all();
         gui_viewer_draw_overlays();
     } else if (app->kind == APP_SNAKE) {
@@ -722,7 +749,7 @@ int gui_reload_config(void) {
     int ok = gui_load_config(0);
     if (gui_active) {
         (void)gui_wallpaper_load(gui_active_wallpaper);
-        gui_render_desktop();
+        gui_force_frame();
     }
     return ok;
 }

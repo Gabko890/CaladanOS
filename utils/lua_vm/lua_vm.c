@@ -495,6 +495,45 @@ int cld_luavm_read_config_strings(const char *path, const char **keys, char **ou
     return found;
 }
 
+int cld_luavm_read_config_u32s(const char *path, const char **keys, u32 *out, int count) {
+    if (!path || !*path || !keys || !out || count <= 0) return 0;
+    Node *file = cldramfs_resolve_path_file(path, 0);
+    if (!file || file->type != FILE_NODE || !file->content) return 0;
+
+    vm_args_t args = { .argc = 0, .argv = 0 };
+    lua_State *L = lua_newstate(l_alloc, &args, 0x12345678u);
+    if (!L) return 0;
+
+    lua_pushcfunction(L, l_config_include); lua_setglobal(L, "include");
+    lua_pushcfunction(L, l_config_include); lua_setglobal(L, "dofile");
+
+    chunk_t ck = { .buf = file->content, .len = file->content_size, .used = 0 };
+    if (lua_load(L, lreader, &ck, path, NULL) != LUA_OK) {
+        lua_close(L);
+        return 0;
+    }
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        lua_close(L);
+        return 0;
+    }
+
+    int found = 0;
+    for (int i = 0; i < count; i++) {
+        if (!keys[i]) continue;
+        lua_getglobal(L, keys[i]);
+        int isnum = 0;
+        long long value = (long long)lua_tointegerx(L, -1, &isnum);
+        if (isnum && value >= 0) {
+            out[i] = (u32)value;
+            found++;
+        }
+        lua_pop(L, 1);
+    }
+
+    lua_close(L);
+    return found;
+}
+
 typedef struct { char *path; int argc; char **argv; int from_gui; } lua_task_args_t;
 
 void cld_luavm_run_deferred(void *arg) {

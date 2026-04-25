@@ -21,7 +21,7 @@ void gui_editor_free(void);
 int gui_editor_on_click(u32 px, u32 py);
 int gui_editor_on_move(u32 px, u32 py);
 // Provide titlebar geometry so editor can place its button/menu
-void gui_editor_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h);
+void gui_editor_set_titlebar(u32 win_x, u32 win_y, u32 win_w, u32 title_h, const u8 button_color[3]);
 // Draw overlays (titlebar File button, dropdown, modals)
 void gui_editor_draw_overlays(void);
 

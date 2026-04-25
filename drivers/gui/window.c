@@ -47,6 +47,8 @@ static gui_window_style_t win_style = {
     { 0x48, 0x64, 0x7A },
     { 0x00, 0x00, 0x00 },
     { 0x40, 0x40, 0x44 },
+    { 0x4C, 0x58, 0x78 },
+    { 0x7B, 0x8F, 0xCC },
     { 0x33, 0x33, 0x36 },
     { 0xCC, 0x33, 0x33 },
     { 0xCC, 0xAA, 0x33 },
@@ -157,14 +159,23 @@ static void minimize_button_rect(gui_window_t *win, u32 *x, u32 *y, u32 *w, u32 
 }
 
 static u32 title_text_x(gui_window_t *win) {
-    u32 x = win->x + 8;
-    u32 inset = win->title_left_inset;
+    u32 tw = text_width(win->title);
+    u32 left_inset = win->title_left_inset;
     if (win->menu_count > 0) {
         u32 menu_inset = text_width("File") + 18;
-        if (menu_inset > inset) inset = menu_inset;
+        if (menu_inset > left_inset) left_inset = menu_inset;
     }
-    x += inset;
-    return x;
+    u32 left = win->x + 8 + left_inset;
+    u32 right = win->x + win->w - 8;
+    if (!(win->flags & GUI_WINDOW_NO_CLOSE)) right -= BUTTON_SIZE + BUTTON_GAP;
+    if (!(win->flags & GUI_WINDOW_NO_MINIMIZE)) right -= BUTTON_SIZE + BUTTON_GAP;
+    if (right <= left) return left;
+
+    u32 centered = win->x + (win->w > tw ? (win->w - tw) / 2 : 0);
+    u32 max_x = right > tw ? right - tw : left;
+    if (centered < left) return left;
+    if (centered > max_x) return max_x;
+    return centered;
 }
 
 static void draw_menu(gui_window_t *win) {
@@ -311,6 +322,14 @@ void gui_window_set_title(gui_window_t *win, const char *title) {
 void gui_window_reserve_title_left(gui_window_t *win, const char *label) {
     if (!win || !win->used) return;
     win->title_left_inset = label ? text_width(label) + 18 : 0;
+}
+
+void gui_window_get_title_button_color(gui_window_t *win, u8 out[3]) {
+    if (!out) return;
+    const u8 *src = (win && win->used && win->id == active_id) ? win_style.active_title_button : win_style.title_button;
+    out[0] = src[0];
+    out[1] = src[1];
+    out[2] = src[2];
 }
 
 void gui_window_set_min_size(gui_window_t *win, u32 min_w, u32 min_h) {
