@@ -2,6 +2,7 @@
 
 esc = "\27["
 reset = esc .. "0m"
+string = import("string")
 
 font = {
     [" "] = {"    ", "    ", "    ", "    ", "    "},
@@ -98,7 +99,7 @@ for row = 1, 5 do
     for ai = text_start, argc() - 1 do
         word = arg(ai)
         for ci = 1, #word do
-            ch = charat(word, ci)
+            ch = string.charat(word, ci)
             glyph = font[ch]
             if not glyph then glyph = font["?"] end
             if rainbow then

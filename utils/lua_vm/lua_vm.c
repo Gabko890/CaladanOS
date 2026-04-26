@@ -333,6 +333,181 @@ static int l_charat(lua_State *L) {
     return 1;
 }
 
+static int l_string_len(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    lua_pushinteger(L, s ? (lua_Integer)len : 0);
+    return 1;
+}
+
+static int l_string_sub(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    int isnum = 0;
+    long long start = (long long)lua_tointegerx(L, 2, &isnum);
+    if (!s || !isnum) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    int isnum_end = 0;
+    long long end = (long long)lua_tointegerx(L, 3, &isnum_end);
+    if (!isnum_end) end = (long long)len;
+
+    if (start < 0) start = (long long)len + start + 1;
+    if (end < 0) end = (long long)len + end + 1;
+    if (start < 1) start = 1;
+    if (end > (long long)len) end = (long long)len;
+    if (end < start || start > (long long)len) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    lua_pushlstring(L, s + start - 1, (size_t)(end - start + 1));
+    return 1;
+}
+
+static int l_string_byte(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    int isnum = 0;
+    long long idx = (long long)lua_tointegerx(L, 2, &isnum);
+    if (!isnum) idx = 1;
+    int isnum_end = 0;
+    long long end = (long long)lua_tointegerx(L, 3, &isnum_end);
+    if (!isnum_end) end = idx;
+    if (!s) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (idx < 0) idx = (long long)len + idx + 1;
+    if (end < 0) end = (long long)len + end + 1;
+    if (idx < 1) idx = 1;
+    if (end > (long long)len) end = (long long)len;
+    if (end < idx || idx > (long long)len) {
+        return 0;
+    }
+    int count = 0;
+    for (long long i = idx; i <= end; i++) {
+        lua_pushinteger(L, (lua_Integer)(u8)s[i - 1]);
+        count++;
+    }
+    return count;
+}
+
+static int l_string_find(lua_State *L) {
+    size_t len = 0, plen = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    const char *pat = lua_tolstring(L, 2, &plen);
+    if (!s || !pat || plen == 0 || plen > len) {
+        lua_pushnil(L);
+        return 1;
+    }
+    for (size_t i = 0; i + plen <= len; i++) {
+        if (memcmp(s + i, pat, plen) == 0) {
+            lua_pushinteger(L, (lua_Integer)i + 1);
+            lua_pushinteger(L, (lua_Integer)(i + plen));
+            return 2;
+        }
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
+static int l_string_split(lua_State *L) {
+    size_t len = 0, seplen = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    const char *sep = lua_tolstring(L, 2, &seplen);
+    if (!s) {
+        lua_createtable(L, 0, 0);
+        return 1;
+    }
+    lua_createtable(L, 0, 0);
+    int out_i = 1;
+    if (!sep || seplen == 0) {
+        for (size_t i = 0; i < len; i++) {
+            lua_pushlstring(L, s + i, 1);
+            lua_rawseti(L, -2, out_i++);
+        }
+        return 1;
+    }
+    size_t start = 0;
+    for (size_t i = 0; i + seplen <= len;) {
+        if (memcmp(s + i, sep, seplen) == 0) {
+            lua_pushlstring(L, s + start, i - start);
+            lua_rawseti(L, -2, out_i++);
+            i += seplen;
+            start = i;
+        } else {
+            i++;
+        }
+    }
+    lua_pushlstring(L, s + start, len - start);
+    lua_rawseti(L, -2, out_i);
+    return 1;
+}
+
+static int is_space_char(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+static int l_string_trim(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    if (!s) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    size_t start = 0;
+    while (start < len && is_space_char(s[start])) start++;
+    size_t end = len;
+    while (end > start && is_space_char(s[end - 1])) end--;
+    lua_pushlstring(L, s + start, end - start);
+    return 1;
+}
+
+static int l_string_lower(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    if (!s) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    char *buf = (char*)kmalloc(len + 1);
+    if (!buf) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    }
+    buf[len] = '\0';
+    lua_pushlstring(L, buf, len);
+    kfree(buf);
+    return 1;
+}
+
+static int l_string_upper(lua_State *L) {
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    if (!s) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    char *buf = (char*)kmalloc(len + 1);
+    if (!buf) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+    }
+    buf[len] = '\0';
+    lua_pushlstring(L, buf, len);
+    kfree(buf);
+    return 1;
+}
+
 static int l_cls(lua_State *L) {
     (void)L; vga_printf("\x1b[2J\x1b[H"); return 0;
 }
@@ -374,6 +549,61 @@ static const char* lreader(lua_State *L, void *ud, size_t *sz) {
     chunk_t *c = (chunk_t*)ud;
     if (c->used) { *sz=0; return NULL; }
     c->used = 1; *sz = c->len; return c->buf;
+}
+
+static void module_path(const char *name, char *out, u32 out_size) {
+    if (!out || out_size == 0) return;
+    out[0] = '\0';
+    if (!name || !*name) return;
+    if (name[0] == '/') {
+        strncpy(out, name, out_size - 1);
+        out[out_size - 1] = '\0';
+        return;
+    }
+    strncpy(out, "/lib/lua/", out_size - 1);
+    out[out_size - 1] = '\0';
+    strncat(out, name, out_size - strlen(out) - 1);
+    if (strlen(out) < 4 || strcmp(out + strlen(out) - 4, ".lua") != 0) {
+        strncat(out, ".lua", out_size - strlen(out) - 1);
+    }
+}
+
+static int l_import(lua_State *L) {
+    const char *name = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    char path[256];
+    module_path(name, path, sizeof(path));
+    if (!path[0]) {
+        lua_pushnil(L);
+        return 1;
+    }
+    Node *file = cldramfs_resolve_path_file(path, 0);
+    if (!file || file->type != FILE_NODE || !file->content) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int base = lua_gettop(L);
+    chunk_t ck = { .buf = file->content, .len = file->content_size, .used = 0 };
+    if (lua_load(L, lreader, &ck, path, NULL) != LUA_OK) {
+        const char *err = lua_tostring(L, -1);
+        vga_printf("lua import %s: %s\n", path, err ? err : "load error");
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        return 1;
+    }
+    if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
+        const char *err = lua_tostring(L, -1);
+        vga_printf("lua import %s: %s\n", path, err ? err : "runtime error");
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        return 1;
+    }
+    int rets = lua_gettop(L) - base;
+    if (rets <= 0) {
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+    return rets;
 }
 
 // Allocator bridging kmalloc/krealloc/kfree
@@ -421,7 +651,18 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     lua_pushcfunction(L, l_exit); lua_setglobal(L, "exit");
     lua_pushcfunction(L, l_sleep); lua_setglobal(L, "sleep");
     lua_pushcfunction(L, l_write); lua_setglobal(L, "write");
-    lua_pushcfunction(L, l_charat); lua_setglobal(L, "charat");
+    lua_pushcfunction(L, l_charat); lua_setglobal(L, "__c_string_charat");
+    lua_pushcfunction(L, l_string_len); lua_setglobal(L, "__c_string_len");
+    lua_pushcfunction(L, l_string_sub); lua_setglobal(L, "__c_string_sub");
+    lua_pushcfunction(L, l_string_byte); lua_setglobal(L, "__c_string_byte");
+    lua_pushcfunction(L, l_string_find); lua_setglobal(L, "__c_string_find");
+    lua_pushcfunction(L, l_string_split); lua_setglobal(L, "__c_string_split");
+    lua_pushcfunction(L, l_string_trim); lua_setglobal(L, "__c_string_trim");
+    lua_pushcfunction(L, l_string_lower); lua_setglobal(L, "__c_string_lower");
+    lua_pushcfunction(L, l_string_upper); lua_setglobal(L, "__c_string_upper");
+    lua_pushcfunction(L, l_import); lua_setglobal(L, "import");
+    lua_pushcfunction(L, l_import); lua_setglobal(L, "include");
+    lua_pushcfunction(L, l_import); lua_setglobal(L, "require");
     lua_pushcfunction(L, l_cls); lua_setglobal(L, "cls");
     lua_pushcfunction(L, l_readtext); lua_setglobal(L, "readtext");
     lua_pushcfunction(L, l_fs_ls); lua_setglobal(L, "fs_ls");
