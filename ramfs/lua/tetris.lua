@@ -1,3 +1,7 @@
+io = import("io")
+random = import("random")
+time = import("time")
+
 esc = "\27["
 reset = esc .. "0m"
 
@@ -45,7 +49,6 @@ pieces = {
     }},
 }
 
-seed = 7
 score = 0
 lines = 0
 frame_ms = 65
@@ -58,8 +61,7 @@ last_drop = false
 last_quit = false
 
 function rnd(max)
-    seed = (seed * 1103515245 + 12345) % 2147483647
-    return (seed % max) + 1
+    return random(1, max)
 end
 
 function new_piece()
@@ -139,21 +141,21 @@ function block(color)
 end
 
 function draw()
-    write(esc .. "2J" .. esc .. "H")
-    write(esc .. "97;40mCaladanOS Lua Tetris" .. reset .. "\n")
-    write("Score: " .. score .. "  Lines: " .. lines .. "\n")
-    write(esc .. "37;40mA/D move  S soft drop  W/X rotate  Space drop  Q quit" .. reset .. "\n")
-    write("+--------------------+\n")
+    io.print(esc .. "2J" .. esc .. "H")
+    io.print(esc .. "97;40mCaladanOS Lua Tetris" .. reset .. "\n")
+    io.print("Score: " .. score .. "  Lines: " .. lines .. "\n")
+    io.print(esc .. "37;40mA/D move  S soft drop  W/X rotate  Space drop  Q quit" .. reset .. "\n")
+    io.print("+--------------------+\n")
     for y = 1, board_h do
-        write("|")
+        io.print("|")
         for x = 1, board_w do
             c = active_color_at(x, y)
             if c == 0 then c = board[y][x] end
-            write(block(c))
+            io.print(block(c))
         end
-        write("|\n")
+        io.print("|\n")
     end
-    write("+--------------------+\n")
+    io.print("+--------------------+\n")
 end
 
 function move(dx, dy)
@@ -250,8 +252,8 @@ while running do
     last_quit = quitting
 
     draw()
-    sleep(frame_ms)
+    time.sleep(frame_ms)
 end
 
 draw()
-write(esc .. "91;40mGame over." .. reset .. " Final score: " .. score .. "\n")
+io.print(esc .. "91;40mGame over." .. reset .. " Final score: " .. score .. "\n")

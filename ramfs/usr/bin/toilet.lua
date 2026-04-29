@@ -2,6 +2,7 @@
 
 esc = "\27["
 reset = esc .. "0m"
+io = import("io")
 string = import("string")
 
 font = {
@@ -70,7 +71,7 @@ text_start = 1
 for i = 1, argc() - 1 do
     a = arg(i)
     if a == "--help" then
-        write("usage: toilet [--plain|--red|--green|--yellow|--blue|--magenta|--cyan|--white|--rainbow] <text>\n")
+        io.print("usage: toilet [--plain|--red|--green|--yellow|--blue|--magenta|--cyan|--white|--rainbow] <text>\n")
         return
     elseif a == "--plain" then color = ""; text_start = i + 1
     elseif a == "--red" then color = esc .. "31m"; text_start = i + 1
@@ -87,7 +88,7 @@ for i = 1, argc() - 1 do
 end
 
 if text_start >= argc() then
-    write("usage: toilet [--color] <text>\n")
+    io.print("usage: toilet [--color] <text>\n")
     return
 end
 
@@ -95,7 +96,7 @@ colors = {31, 33, 32, 36, 34, 35}
 
 for row = 1, 5 do
     color_index = 1
-    if color ~= "" and not rainbow then write(color) end
+    if color ~= "" and not rainbow then io.print(color) end
     for ai = text_start, argc() - 1 do
         word = arg(ai)
         for ci = 1, #word do
@@ -103,17 +104,17 @@ for row = 1, 5 do
             glyph = font[ch]
             if not glyph then glyph = font["?"] end
             if rainbow then
-                write(esc)
-                write(colors[color_index])
-                write("m")
+                io.print(esc)
+                io.print(colors[color_index])
+                io.print("m")
                 color_index = color_index + 1
                 if color_index > #colors then color_index = 1 end
             end
-            write(glyph[row])
-            write(" ")
+            io.print(glyph[row])
+            io.print(" ")
         end
-        if ai < argc() - 1 then write("    ") end
+        if ai < argc() - 1 then io.print("    ") end
     end
-    if color ~= "" or rainbow then write(reset) end
-    write("\n")
+    if color ~= "" or rainbow then io.print(reset) end
+    io.print("\n")
 end

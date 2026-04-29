@@ -1,3 +1,8 @@
 -- mv: move/rename file
-fs_mv(arg(1), arg(2))
+io = import("io")
 
+text = io.fs.read_file(arg(1))
+if text then
+    io.fs.write_file(arg(2), text)
+    io.fs.remove(arg(1))
+end

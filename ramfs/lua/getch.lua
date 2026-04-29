@@ -1,4 +1,6 @@
-print("Press any key (hidden): ")
-ch = getch()
-print("You pressed:")
-print(ch)
+io = import("io")
+
+io.println("Press any key (hidden): ")
+ch = io.getchar()
+io.println("You pressed:")
+io.println(ch)

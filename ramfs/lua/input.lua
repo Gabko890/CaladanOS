@@ -1,4 +1,6 @@
-print("Enter your name:")
-name = input("> ")
-print("You typed:")
-print(name)
+io = import("io")
+
+io.println("Enter your name:")
+name = io.readline("> ")
+io.println("You typed:")
+io.println(name)

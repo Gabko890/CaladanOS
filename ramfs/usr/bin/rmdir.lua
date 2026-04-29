@@ -1,3 +1,4 @@
 -- rmdir: remove directory
-fs_rmdir(arg(1))
+io = import("io")
 
+io.fs.remove(arg(1))

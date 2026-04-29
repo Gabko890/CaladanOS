@@ -1,3 +1,4 @@
 -- rm: remove a file
-fs_rm(arg(1))
+io = import("io")
 
+io.fs.remove(arg(1))

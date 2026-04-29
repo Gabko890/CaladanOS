@@ -98,6 +98,12 @@ static int l_print(lua_State *L) {
     return 0;
 }
 
+static int l_println(lua_State *L) {
+    (void)l_print(L);
+    vga_printf("\n");
+    return 0;
+}
+
 static int l_readfile(lua_State *L) {
     const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
     Node *f = cldramfs_resolve_path_file(path, 0);
@@ -131,6 +137,31 @@ static void vm_file_write(Node *file, const char *data, int append) {
     }
 }
 
+static Node *vm_resolve_any(const char *path) {
+    if (!path || !*path) return NULL;
+    Node *node = cldramfs_resolve_path_file(path, 0);
+    if (node) return node;
+    return cldramfs_resolve_path_dir(path, 0);
+}
+
+static int vm_remove_node(Node *node) {
+    if (!node || !node->parent) return 0;
+    Node *parent = node->parent;
+    if (parent->type != DIR_NODE) return 0;
+    if (node->type == DIR_NODE && node->child_count > 0) return 0;
+    for (u32 i = 0; i < parent->child_count; i++) {
+        if (parent->children[i] == node) {
+            for (u32 j = i; j + 1 < parent->child_count; j++) {
+                parent->children[j] = parent->children[j + 1];
+            }
+            parent->child_count--;
+            cldramfs_free_node(node);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int l_writefile(lua_State *L) {
     const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
     size_t len = 0; const char *data = lua_tolstring(L, 2, &len);
@@ -147,6 +178,100 @@ static int l_appendfile(lua_State *L) {
     if (!f) return 0;
     vm_file_write(f, data, 1);
     return 0;
+}
+
+static int l_file_exists(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    lua_pushboolean(L, vm_resolve_any(path) ? 1 : 0);
+    return 1;
+}
+
+static int l_file_is_file(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    Node *node = vm_resolve_any(path);
+    lua_pushboolean(L, node && node->type == FILE_NODE);
+    return 1;
+}
+
+static int l_file_is_dir(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    Node *node = vm_resolve_any(path);
+    lua_pushboolean(L, node && node->type == DIR_NODE);
+    return 1;
+}
+
+static int l_file_read(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    Node *node = cldramfs_resolve_path_file(path, 0);
+    if (!node || node->type != FILE_NODE) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (!node->content || node->content_size == 0) {
+        lua_pushstring(L, "");
+        return 1;
+    }
+    lua_pushlstring(L, node->content, node->content_size);
+    return 1;
+}
+
+static int l_file_write(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    size_t len = 0;
+    const char *data = lua_tolstring(L, 2, &len);
+    (void)len;
+    Node *node = cldramfs_resolve_path_file(path, 1);
+    if (!node || node->type != FILE_NODE || !data) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    vm_file_write(node, data, 0);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_file_append(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    size_t len = 0;
+    const char *data = lua_tolstring(L, 2, &len);
+    (void)len;
+    Node *node = cldramfs_resolve_path_file(path, 1);
+    if (!node || node->type != FILE_NODE || !data) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    vm_file_write(node, data, 1);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_file_list_dir(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    Node *dir = cldramfs_resolve_path_dir(path && *path ? path : ".", 0);
+    if (!dir || dir->type != DIR_NODE) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, (int)dir->child_count, 0);
+    for (u32 i = 0; i < dir->child_count; i++) {
+        Node *child = dir->children[i];
+        lua_pushstring(L, child && child->name ? child->name : "");
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int l_file_mkdir(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    Node *dir = cldramfs_resolve_path_dir(path, 1);
+    lua_pushboolean(L, dir && dir->type == DIR_NODE);
+    return 1;
+}
+
+static int l_file_remove(lua_State *L) {
+    const char *path = lua_isstring(L, 1) ? lua_tostring(L, 1) : NULL;
+    lua_pushboolean(L, vm_remove_node(vm_resolve_any(path)));
+    return 1;
 }
 
 static int l_input(lua_State *L) {
@@ -287,6 +412,39 @@ static int l_keydown(lua_State *L) {
         down = (ps2_keyarr() & ((u128)1 << (u8)sc)) ? 1 : 0;
     }
     lua_pushboolean(L, down);
+    return 1;
+}
+
+static int l_time(lua_State *L) {
+    u32 hz = pit_get_hz();
+    u64 ticks = pit_ticks();
+    if (!hz) lua_pushinteger(L, (lua_Integer)ticks);
+    else lua_pushinteger(L, (lua_Integer)((ticks * 1000ULL) / (u64)hz));
+    return 1;
+}
+
+static u32 random_state = 1;
+
+static int l_random(lua_State *L) {
+    int has_min = 0, has_max = 0;
+    long long min = (long long)lua_tointegerx(L, 1, &has_min);
+    long long max = (long long)lua_tointegerx(L, 2, &has_max);
+    if (!has_min && !has_max) {
+        min = 0;
+        max = 2147483647LL;
+    } else if (has_min && !has_max) {
+        max = min;
+        min = 1;
+    }
+    if (max < min) {
+        long long tmp = min;
+        min = max;
+        max = tmp;
+    }
+    if (random_state == 1) random_state = (u32)(pit_ticks() ^ 0x9E3779B9u);
+    random_state = random_state * 1664525u + 1013904223u;
+    u64 span = (u64)(max - min + 1);
+    lua_pushinteger(L, (lua_Integer)(min + (long long)((u64)random_state % span)));
     return 1;
 }
 
@@ -562,7 +720,11 @@ static void module_path(const char *name, char *out, u32 out_size) {
     }
     strncpy(out, "/lib/lua/", out_size - 1);
     out[out_size - 1] = '\0';
-    strncat(out, name, out_size - strlen(out) - 1);
+    u32 used = (u32)strlen(out);
+    for (u32 i = 0; name[i] && used + 1 < out_size; i++) {
+        out[used++] = (name[i] == '.') ? '/' : name[i];
+        out[used] = '\0';
+    }
     if (strlen(out) < 4 || strcmp(out + strlen(out) - 4, ".lua") != 0) {
         strncat(out, ".lua", out_size - strlen(out) - 1);
     }
@@ -660,6 +822,23 @@ int cld_luavm_run_file_with_args(const char *path, int argc, const char **argv) 
     lua_pushcfunction(L, l_string_trim); lua_setglobal(L, "__c_string_trim");
     lua_pushcfunction(L, l_string_lower); lua_setglobal(L, "__c_string_lower");
     lua_pushcfunction(L, l_string_upper); lua_setglobal(L, "__c_string_upper");
+    lua_pushcfunction(L, l_print); lua_setglobal(L, "__c_io_print");
+    lua_pushcfunction(L, l_println); lua_setglobal(L, "__c_io_println");
+    lua_pushcfunction(L, l_input); lua_setglobal(L, "__c_io_readline");
+    lua_pushcfunction(L, l_getch); lua_setglobal(L, "__c_io_getchar");
+    lua_pushcfunction(L, l_cls); lua_setglobal(L, "__c_io_clear");
+    lua_pushcfunction(L, l_file_exists); lua_setglobal(L, "__c_file_exists");
+    lua_pushcfunction(L, l_file_is_file); lua_setglobal(L, "__c_file_is_file");
+    lua_pushcfunction(L, l_file_is_dir); lua_setglobal(L, "__c_file_is_dir");
+    lua_pushcfunction(L, l_file_read); lua_setglobal(L, "__c_file_read_file");
+    lua_pushcfunction(L, l_file_write); lua_setglobal(L, "__c_file_write_file");
+    lua_pushcfunction(L, l_file_append); lua_setglobal(L, "__c_file_append_file");
+    lua_pushcfunction(L, l_file_list_dir); lua_setglobal(L, "__c_file_list_dir");
+    lua_pushcfunction(L, l_file_mkdir); lua_setglobal(L, "__c_file_mkdir");
+    lua_pushcfunction(L, l_file_remove); lua_setglobal(L, "__c_file_remove");
+    lua_pushcfunction(L, l_random); lua_setglobal(L, "__c_random");
+    lua_pushcfunction(L, l_time); lua_setglobal(L, "__c_time");
+    lua_pushcfunction(L, l_sleep); lua_setglobal(L, "__c_time_sleep");
     lua_pushcfunction(L, l_import); lua_setglobal(L, "import");
     lua_pushcfunction(L, l_import); lua_setglobal(L, "include");
     lua_pushcfunction(L, l_import); lua_setglobal(L, "require");

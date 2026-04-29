@@ -1,3 +1,4 @@
 -- mkdir: create directory
-fs_mkdir(arg(1))
+io = import("io")
 
+io.fs.mkdir(arg(1))
