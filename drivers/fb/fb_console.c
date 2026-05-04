@@ -4,6 +4,7 @@
 #include <multiboot/multiboot2.h>
 #include <fb/fb_console.h>
 #include <cldramfs/cldramfs.h>
+#include <kmalloc.h>
 
 // Minimal PSF v1 header
 typedef struct {
@@ -52,6 +53,15 @@ static int g_has_console_font = 0;
 static int g_has_gui_font = 0;
 
 static u8 g_color = 0x07; // VGA light grey on black
+
+typedef struct {
+    char ch;
+    u8 attr;
+} fb_console_cell_t;
+
+static fb_console_cell_t *g_cells = 0;
+static int g_cell_cols = 0;
+static int g_cell_rows = 0;
 
 static volatile u8 *g_target_fb = 0;
 static u32 g_target_pitch = 0;
@@ -153,6 +163,63 @@ static const psf_font_t* gui_font(void) {
 
 static int cols(void) { return g_has_fb && g_has_console_font ? (int)(g_fb.fb_width / (u32)g_console_font.cell_w) : 0; }
 static int rows(void) { return g_has_fb && g_has_console_font ? (int)(g_fb.fb_height / (u32)g_console_font.cell_h) : 0; }
+
+static int fb_console_ensure_cells(void) {
+    if (!g_has_fb || !g_has_console_font) return 0;
+    int cw = cols();
+    int rh = rows();
+    if (cw <= 0 || rh <= 0) return 0;
+    if (g_cells && g_cell_cols == cw && g_cell_rows == rh) return 1;
+
+    fb_console_cell_t *old = g_cells;
+    int old_cols = g_cell_cols;
+    int old_rows = g_cell_rows;
+    fb_console_cell_t *next = (fb_console_cell_t*)kmalloc((size_t)(cw * rh * (int)sizeof(fb_console_cell_t)));
+    if (!next) return 0;
+
+    for (int i = 0; i < cw * rh; i++) {
+        next[i].ch = ' ';
+        next[i].attr = g_color;
+    }
+    if (old) {
+        int copy_rows = old_rows < rh ? old_rows : rh;
+        int copy_cols = old_cols < cw ? old_cols : cw;
+        for (int y = 0; y < copy_rows; y++) {
+            for (int x = 0; x < copy_cols; x++) {
+                next[y * cw + x] = old[y * old_cols + x];
+            }
+        }
+        kfree(old);
+    }
+
+    g_cells = next;
+    g_cell_cols = cw;
+    g_cell_rows = rh;
+    return 1;
+}
+
+static void fb_console_draw_cell(int x, int y) {
+    if (!g_cells) return;
+    if (x < 0 || y < 0 || x >= g_cell_cols || y >= g_cell_rows) return;
+    fb_console_cell_t cell = g_cells[y * g_cell_cols + x];
+    const u8* fg = PALETTE[fg_idx(cell.attr) & 0x0F];
+    const u8* bg = PALETTE[bg_idx(cell.attr) & 0x0F];
+    draw_glyph(&g_console_font, (u32)x, (u32)y, (u8)cell.ch, fg, bg);
+}
+
+static void fb_console_render_cells(u8 clear_attr) {
+    if (!fb_console_ensure_cells()) return;
+    for (int y = 0; y < g_cell_rows; y++) {
+        for (int x = 0; x < g_cell_cols; x++) {
+            fb_console_draw_cell(x, y);
+        }
+    }
+    u32 text_h = (u32)g_cell_rows * (u32)g_console_font.cell_h;
+    if (text_h < g_fb.fb_height) {
+        const u8* bg = PALETTE[bg_idx(clear_attr) & 0x0F];
+        fill_rect(0, text_h, g_fb.fb_width, g_fb.fb_height - text_h, bg);
+    }
+}
 
 static int load_psf_from_buffer(const void* buf, u32 len, psf_font_t* out) {
     if (!buf || !out || len < sizeof(psf1_header_t)) return 0;
@@ -354,32 +421,40 @@ void fb_console_putc_at(char c, u8 vga_attr, int x, int y) {
     int cw = cols();
     int rh = rows();
     if (x >= cw || y >= rh) return;
-    const u8* fg = PALETTE[fg_idx(vga_attr) & 0x0F];
-    const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
-    draw_glyph(&g_console_font, (u32)x, (u32)y, (u8)c, fg, bg);
+    if (fb_console_ensure_cells()) {
+        g_cells[y * g_cell_cols + x].ch = c;
+        g_cells[y * g_cell_cols + x].attr = vga_attr;
+    }
+    fb_console_draw_cell(x, y);
 }
 
 void fb_console_scroll_up(u8 vga_attr) {
     if (!fb_console_is_active()) return;
-    const u32 row_px = (u32)g_console_font.cell_h;
-    if (g_fb.fb_height <= row_px) {
+    if (!fb_console_ensure_cells()) {
         const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
         fill_rect(0, 0, g_fb.fb_width, g_fb.fb_height, bg);
         return;
     }
-    // Scroll one text row
-    for (u32 y = 0; y + row_px < g_fb.fb_height; y++) {
-        volatile u8* dst = g_fb.fb + y * g_fb.pitch;
-        volatile u8* src = g_fb.fb + (y + row_px) * g_fb.pitch;
-        // Safe byte copy per scanline
-        for (u32 i = 0; i < g_fb.pitch; i++) dst[i] = src[i];
+    for (int y = 0; y < g_cell_rows - 1; y++) {
+        for (int x = 0; x < g_cell_cols; x++) {
+            g_cells[y * g_cell_cols + x] = g_cells[(y + 1) * g_cell_cols + x];
+        }
     }
-    const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
-    fill_rect(0, g_fb.fb_height - row_px, g_fb.fb_width, row_px, bg);
+    for (int x = 0; x < g_cell_cols; x++) {
+        g_cells[(g_cell_rows - 1) * g_cell_cols + x].ch = ' ';
+        g_cells[(g_cell_rows - 1) * g_cell_cols + x].attr = vga_attr;
+    }
+    fb_console_render_cells(vga_attr);
 }
 
 void fb_console_clear(void) {
     if (!fb_console_is_active()) return;
+    if (fb_console_ensure_cells()) {
+        for (int i = 0; i < g_cell_cols * g_cell_rows; i++) {
+            g_cells[i].ch = ' ';
+            g_cells[i].attr = g_color;
+        }
+    }
     const u8* bg = PALETTE[bg_idx(g_color) & 0x0F];
     fill_rect(0, 0, g_fb.fb_width, g_fb.fb_height, bg);
 }
@@ -387,6 +462,12 @@ void fb_console_clear(void) {
 void fb_console_clear_line(int y, u8 vga_attr) {
     if (!fb_console_is_active()) return;
     if (y < 0 || y >= rows()) return;
+    if (fb_console_ensure_cells()) {
+        for (int x = 0; x < g_cell_cols; x++) {
+            g_cells[y * g_cell_cols + x].ch = ' ';
+            g_cells[y * g_cell_cols + x].attr = vga_attr;
+        }
+    }
     const u8* bg = PALETTE[bg_idx(vga_attr) & 0x0F];
     u32 py = (u32)y * (u32)g_console_font.cell_h;
     fill_rect(0, py, g_fb.fb_width, (u32)g_console_font.cell_h, bg);
@@ -400,6 +481,12 @@ void fb_console_clear_to_eol(int x, int y, u8 vga_attr) {
     u32 px = (u32)x * (u32)g_console_font.cell_w;
     u32 py = (u32)y * (u32)g_console_font.cell_h;
     if (px >= g_fb.fb_width) return;
+    if (fb_console_ensure_cells()) {
+        for (int cx = x; cx < g_cell_cols; cx++) {
+            g_cells[y * g_cell_cols + cx].ch = ' ';
+            g_cells[y * g_cell_cols + cx].attr = vga_attr;
+        }
+    }
     fill_rect(px, py, g_fb.fb_width - px, (u32)g_console_font.cell_h, bg);
 }
 
