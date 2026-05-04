@@ -1,8 +1,15 @@
-ifeq ($(OS), Windows_NT)
+ifeq ($(OS),Windows_NT)
+
+.DEFAULT_GOAL := all
 
 DOCKER_RUN := docker run -it --rm -v "$(CURDIR):/root/env" cld-kernel-env
 
 .PHONY: all rundocker build test clean
+
+define RUN_WINDOWS_TARGET
+	@echo Building $(if $(filter build-x86_64-test,$(1)),kernel with tests,kernel using Docker)...
+	@$(DOCKER_RUN) make $(1)
+endef
 
 all: rundocker
 
@@ -13,97 +20,71 @@ rundocker:
 	@$(DOCKER_RUN) make build-x86_64
 
 build:
-	@echo Building kernel using Docker...
-	@$(DOCKER_RUN) make build-x86_64
+	$(call RUN_WINDOWS_TARGET,build-x86_64)
 
 test:
-	@echo Building kernel with tests using Docker...
-	@$(DOCKER_RUN) make build-x86_64-test
+	$(call RUN_WINDOWS_TARGET,build-x86_64-test)
 
 clean:
 	rm -rf build/*
 
 else
 
-COLOR_GREEN    := \033[32m
-COLOR_YELLOW   := \033[93m
-COLOR_RESET    := \033[0m
+.DEFAULT_GOAL := all
 
-ASM            := nasm
-LD             := x86_64-elf-ld
-CC             := x86_64-elf-gcc
-GRUBMKRESCUE   := grub-mkrescue
+COLOR_GREEN   := \033[32m
+COLOR_YELLOW  := \033[93m
+COLOR_RESET   := \033[0m
 
-TARGET         := CaladanOS.iso
+ASM           := nasm
+LD            := x86_64-elf-ld
+CC            := x86_64-elf-gcc
+GRUBMKRESCUE  := grub-mkrescue
+
+TARGET            := CaladanOS.iso
 QEMU_ISA_DEBUGCON := true
 
-BOOT_SRC_DIR   := boot/src
-BOOT_INC_DIR   := boot/include
-KERNEL_SRC_DIR := kernel/src
-KERNEL_INC_DIR := kernel/include
-UTILS_DIR      := utils
-DRIVERS_SRC_DIR := drivers
-DRIVERS_INC_DIR := drivers
-TESTS_SRC_DIR  := tests
-BUILD_DIR      := build
-ISO_DIR        := $(BUILD_DIR)/iso
-SYSINFO_HEADER := $(BUILD_DIR)/generated/sysinfo_values.h
-CONF_DIR       := config
-LINKER_SCRIPT  := targets/x86_64.ld
-RAMFS_DIR      := ramfs
-EXTERNAL_DIR   := external
-DLMALLOC_DIR   := external/dlmalloc
+BUILD_DIR         := build
+ISO_DIR           := $(BUILD_DIR)/iso
+SYSINFO_HEADER    := $(BUILD_DIR)/generated/sysinfo_values.h
+CONF_DIR          := config
+LINKER_SCRIPT     := targets/x86_64.ld
+RAMFS_DIR         := ramfs
+RAMFS_BIN_DIR     := $(RAMFS_DIR)/bin
+RAMFS_CPIO        := $(ISO_DIR)/boot/ramfs.cpio
+GRUB_CFG_DST      := $(ISO_DIR)/boot/grub/grub.cfg
+SYSINFO_SCRIPT    := scripts/generate_sysinfo_header.sh
 
-BOOT_ASM_SOURCES    := $(shell find $(BOOT_SRC_DIR) -name '*.asm')
-BOOT_C_SOURCES      := $(shell find $(BOOT_SRC_DIR) -name '*.c')
-KERNEL_ASM_SOURCES  := $(shell find $(KERNEL_SRC_DIR) -name '*.asm')
-KERNEL_C_SOURCES    := $(shell find $(KERNEL_SRC_DIR) -name '*.c')
-UTILS_ASM_SOURCES   := $(shell find $(UTILS_DIR) -name '*.asm')
-UTILS_C_SOURCES     := $(filter-out $(UTILS_DIR)/cldtest/cldtest.c, $(shell find $(UTILS_DIR) -name '*.c'))
-DRIVERS_ASM_SOURCES := $(shell find $(DRIVERS_SRC_DIR) -name '*.asm')
-DRIVERS_C_SOURCES   := $(shell find $(DRIVERS_SRC_DIR) -name '*.c')
-TESTS_ASM_SOURCES   := $(shell find $(TESTS_SRC_DIR) -name '*.asm')
-TESTS_C_SOURCES     := $(shell find $(TESTS_SRC_DIR) -name '*.c')
-EXTERNAL_C_SOURCES  := $(shell find $(DLMALLOC_DIR) -name '*.c')
+find_files        = $(sort $(shell find $(1) -type f \( $(2) \) | sort))
+find_c_sources    = $(call find_files,$(1),-name '*.c')
+find_asm_sources  = $(call find_files,$(1),-name '*.asm')
+to_objects        = $(addprefix $(BUILD_DIR)/,$(patsubst %.asm,%.o,$(patsubst %.c,%.o,$(1))))
 
-# Lua 5.5 core (embedded VM)
-LUA_DIR := external/lua-5.5.0/src
-LUA_CORE_FILES := \
-	lapi.c lcode.c lctype.c ldebug.c ldo.c lfunc.c lgc.c llex.c lmem.c \
-	lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c ltm.c \
-	ldump.c lundump.c lvm.c lzio.c
-EXTERNAL_LUA_SOURCES := $(addprefix $(LUA_DIR)/,$(LUA_CORE_FILES))
+include boot/Makefile
+include kernel/Makefile
+include utils/Makefile
+include drivers/Makefile
+include tests/Makefile
+include external/Makefile
+include programs/Makefile
 
-BOOT_ASM_OBJECTS    := $(patsubst $(BOOT_SRC_DIR)/%.asm, $(BUILD_DIR)/boot/%.o, $(BOOT_ASM_SOURCES))
-BOOT_C_OBJECTS      := $(patsubst $(BOOT_SRC_DIR)/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_C_SOURCES))
-KERNEL_ASM_OBJECTS  := $(patsubst $(KERNEL_SRC_DIR)/%.asm, $(BUILD_DIR)/kernel/%.o, $(KERNEL_ASM_SOURCES))
-KERNEL_C_OBJECTS    := $(patsubst $(KERNEL_SRC_DIR)/%.c, $(BUILD_DIR)/kernel/%.o, $(KERNEL_C_SOURCES))
-UTILS_ASM_OBJECTS   := $(patsubst $(UTILS_DIR)/%.asm, $(BUILD_DIR)/utils/%.o, $(UTILS_ASM_SOURCES))
-UTILS_C_OBJECTS     := $(patsubst $(UTILS_DIR)/%.c, $(BUILD_DIR)/utils/%.o, $(UTILS_C_SOURCES))
-DRIVERS_ASM_OBJECTS := $(patsubst $(DRIVERS_SRC_DIR)/%.asm, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_ASM_SOURCES))
-DRIVERS_C_OBJECTS   := $(patsubst $(DRIVERS_SRC_DIR)/%.c, $(BUILD_DIR)/drivers/%.o, $(DRIVERS_C_SOURCES))
-TESTS_ASM_OBJECTS   := $(patsubst $(TESTS_SRC_DIR)/%.asm, $(BUILD_DIR)/tests/%.o, $(TESTS_ASM_SOURCES))
-TESTS_C_OBJECTS     := $(patsubst $(TESTS_SRC_DIR)/%.c, $(BUILD_DIR)/tests/%.o, $(TESTS_C_SOURCES))
-EXTERNAL_C_OBJECTS  := $(patsubst $(DLMALLOC_DIR)/%.c, $(BUILD_DIR)/external/dlmalloc/%.o, $(EXTERNAL_C_SOURCES)) \
-	$(patsubst $(LUA_DIR)/%.c, $(BUILD_DIR)/external/lua/%.o, $(EXTERNAL_LUA_SOURCES))
-CLDTEST_OBJECT      := $(BUILD_DIR)/utils/cldtest/cldtest.o
+RAMFS_STATIC_FILES := $(sort $(shell find $(RAMFS_DIR) -type f ! -name '*.o' | sort))
 
-UTILS_SUBDIRS  := $(shell find $(UTILS_DIR) -type d)
-UTILS_INCLUDES := $(addprefix -I, $(UTILS_SUBDIRS))
-EXTERNAL_SUBDIRS := $(shell find $(EXTERNAL_DIR) -type d)
-EXTERNAL_INCLUDES := $(addprefix -I, $(EXTERNAL_SUBDIRS)) -I external
+CORE_OBJECTS      := $(BOOT_OBJECTS) $(KERNEL_OBJECTS) $(UTILS_OBJECTS) $(DRIVERS_OBJECTS) $(EXTERNAL_OBJECTS) $(LUA_OBJECTS)
+ALL_OBJECTS       := $(CORE_OBJECTS) $(TESTS_OBJECTS) $(CLDTEST_OBJECT)
+OBJECTS           := $(if $(ENABLE_TESTS),$(ALL_OBJECTS),$(CORE_OBJECTS))
 
-CORE_OBJECTS   := $(BOOT_ASM_OBJECTS) $(BOOT_C_OBJECTS) $(KERNEL_ASM_OBJECTS) $(KERNEL_C_OBJECTS) \
-                  $(UTILS_ASM_OBJECTS) $(UTILS_C_OBJECTS) $(DRIVERS_ASM_OBJECTS) $(DRIVERS_C_OBJECTS) \
-                  $(EXTERNAL_C_OBJECTS)
-ALL_OBJECTS    := $(CORE_OBJECTS) $(TESTS_ASM_OBJECTS) $(TESTS_C_OBJECTS) $(CLDTEST_OBJECT)
-OBJECTS        := $(CORE_OBJECTS)
-
-CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
-                  -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(BUILD_DIR)/generated $(UTILS_INCLUDES) \
-                  -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic -I$(LUA_DIR) $(EXTERNAL_INCLUDES) \
-                  -DMSPACES -DONLY_MSPACES -DUSE_DL_PREFIX
+CFLAGS            := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
+                     -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(BUILD_DIR)/generated $(UTILS_INCLUDES) \
+                     -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic -I$(LUA_DIR) $(EXTERNAL_INCLUDES) \
+                     -DMSPACES -DONLY_MSPACES -DUSE_DL_PREFIX
 CFLAGS_WITH_TESTS := $(CFLAGS) -DCLDTEST_ENABLED
+ACTIVE_CFLAGS     = $(if $(ENABLE_TESTS),$(CFLAGS_WITH_TESTS),$(CFLAGS))
+
+ifeq ($(QEMU_ISA_DEBUGCON),true)
+    CFLAGS += -DQEMU_ISA_DEBUGCON
+    CFLAGS_WITH_TESTS += -DQEMU_ISA_DEBUGCON
+endif
 
 define PROMPT_BUILD_LABEL
 label="$(BUILD_LABEL)"; \
@@ -114,167 +95,78 @@ if [ -z "$$label" ]; then \
 fi
 endef
 
-ifeq ($(QEMU_ISA_DEBUGCON), true)
-    CFLAGS += -DQEMU_ISA_DEBUGCON
-    CFLAGS_WITH_TESTS += -DQEMU_ISA_DEBUGCON
-endif
+define RUN_LABELED_MAKE
+@$(PROMPT_BUILD_LABEL); \
+$(MAKE) BUILD_LABEL="$$label" $(1) build-x86_64-internal
+endef
 
-.PHONY: all clean build-x86_64 build-x86_64-test build-x86_64-internal test build qemu build-docker
+define RUN_DOCKER_TARGET
+@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) kernel$(if $(filter build-x86_64-test,$(1)), with tests,) using Docker..."
+	@$(PROMPT_BUILD_LABEL); \
+	git_dir=$$(pwd); \
+	git_branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); \
+	git_commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); \
+	docker run --rm -e BUILD_LABEL="$$label" -e SYSINFO_GIT_BRANCH="$$git_branch" -e SYSINFO_GIT_COMMIT="$$git_commit" -v "$$PWD":/root/env cld-kernel-env make BUILD_LABEL="$$label" $(1)
+endef
+
+.PHONY: all clean build-x86_64 build-x86_64-test build-x86_64-internal test build qemu build-docker FORCE
 
 all: build-docker build
 
-$(BUILD_DIR)/boot/%.o: $(BOOT_SRC_DIR)/%.asm
+$(BUILD_DIR)/%.o: %.asm
 	@mkdir -p $(dir $@)
 	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
 	@$(ASM) -f elf64 $< -o $@
 
-$(BUILD_DIR)/boot/%.o: $(BOOT_SRC_DIR)/%.c
+$(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(ACTIVE_CFLAGS) $(TARGET_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.asm
+$(RAMFS_BIN_DIR)/%.o: $(PROGRAMS_DIR)/%.asm
 	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
+	@echo "  Compiling $(basename $(notdir $<))"
 	@$(ASM) -f elf64 $< -o $@
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_SRC_DIR)/%.c
+$(SYSINFO_HEADER): version.txt $(SYSINFO_SCRIPT) FORCE
 	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -c $< -o $@
-endif
+	@sh $(SYSINFO_SCRIPT) $@ "$(BUILD_LABEL)" "$(SYSINFO_GIT_BRANCH)" "$(SYSINFO_GIT_COMMIT)"
 
-$(SYSINFO_HEADER): version.txt FORCE
+$(BUILD_DIR)/kernel/kernel.elf: $(OBJECTS)
 	@mkdir -p $(dir $@)
-	@label="$(BUILD_LABEL)"; \
-	if [ -z "$$label" ]; then label="build"; fi; \
-	branch="$(SYSINFO_GIT_BRANCH)"; \
-	commit="$(SYSINFO_GIT_COMMIT)"; \
-	git_dir=$$(pwd); \
-	if [ -z "$$branch" ]; then branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); fi; \
-	if [ -z "$$commit" ]; then commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); fi; \
-	build_datetime=$$(date -u "+%Y-%m-%dT%H:%M:%SZ"); \
-	version=$$(if [ -f version.txt ]; then head -n 1 version.txt; else printf "0.0"; fi); \
-	escape_c_string() { printf "%s" "$$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }; \
-	{ \
-		printf "#ifndef SYSINFO_VALUES_H\n"; \
-		printf "#define SYSINFO_VALUES_H\n\n"; \
-		printf "#define SYSINFO_GIT_BRANCH \"%s\"\n" "$$(escape_c_string "$$branch")"; \
-		printf "#define SYSINFO_GIT_COMMIT \"%s\"\n" "$$(escape_c_string "$$commit")"; \
-		printf "#define SYSINFO_BUILD_DATETIME \"%s\"\n" "$$(escape_c_string "$$build_datetime")"; \
-		printf "#define SYSINFO_BUILD_LABEL \"%s\"\n" "$$(escape_c_string "$$label")"; \
-		printf "#define SYSINFO_KERNEL_VERSION \"%s\"\n\n" "$$(escape_c_string "$$version")"; \
-		printf "#endif\n"; \
-	} > $@
+	@echo "$(COLOR_YELLOW)Linking kernel$(COLOR_RESET)"
+	@$(LD) -n -o $@ -T $(LINKER_SCRIPT) $(OBJECTS)
 
-$(BUILD_DIR)/kernel/sysinfo.o: $(KERNEL_SRC_DIR)/sysinfo.c $(SYSINFO_HEADER)
+$(ISO_DIR)/boot/kernel.elf: $(BUILD_DIR)/kernel/kernel.elf
 	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -c $< -o $@
-endif
+	@cp $< $@
 
-$(BUILD_DIR)/utils/%.o: $(UTILS_DIR)/%.asm
+$(GRUB_CFG_DST): $(CONF_DIR)/grub.cfg
 	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-	@$(ASM) -f elf64 $< -o $@
+	@cp $< $@
 
-$(BUILD_DIR)/utils/%.o: $(UTILS_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -c $< -o $@
-endif
-
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_SRC_DIR)/%.asm
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-	@$(ASM) -f elf64 $< -o $@
-
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_SRC_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -c $< -o $@
-endif
-
-$(BUILD_DIR)/tests/%.o: $(TESTS_SRC_DIR)/%.asm
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-	@$(ASM) -f elf64 $< -o $@
-
-$(BUILD_DIR)/tests/%.o: $(TESTS_SRC_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -c $< -o $@
-endif
-
-$(BUILD_DIR)/external/dlmalloc/%.o: $(DLMALLOC_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling external:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -c $< -o $@
-endif
-
-$(BUILD_DIR)/external/lua/%.o: $(LUA_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "$(COLOR_GREEN)Compiling external lua:$(COLOR_RESET) $<"
-ifdef ENABLE_TESTS
-	@$(CC) $(CFLAGS_WITH_TESTS) -I$(LUA_DIR) -Iutils/compat -Dl_signalT=int -c $< -o $@
-else
-	@$(CC) $(CFLAGS) -I$(LUA_DIR) -Iutils/compat -Dl_signalT=int -c $< -o $@
-endif
-
-build-x86_64:
-	@$(PROMPT_BUILD_LABEL); \
-	$(MAKE) BUILD_LABEL="$$label" build-x86_64-internal
-
-build-x86_64-test:
-	@$(PROMPT_BUILD_LABEL); \
-	$(MAKE) BUILD_LABEL="$$label" ENABLE_TESTS=1 OBJECTS="$(ALL_OBJECTS)" build-x86_64-internal
-
-build-x86_64-internal: $(OBJECTS)
-	@mkdir -p $(BUILD_DIR)/kernel
-	@mkdir -p $(ISO_DIR)/boot/grub
-	@echo "$(COLOR_YELLOW)Linking objects:$(COLOR_RESET) $(OBJECTS)"
-	@$(LD) -n -o $(BUILD_DIR)/kernel/kernel.elf -T $(LINKER_SCRIPT) $(OBJECTS)
-	@cp $(BUILD_DIR)/kernel/kernel.elf $(ISO_DIR)/boot/kernel.elf
-	@mkdir -p $(ISO_DIR)/boot
-	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) test programs..."
-	@mkdir -p $(RAMFS_DIR)/bin
-	@for asm_file in programs/*.asm; do \
-		if [ -f "$$asm_file" ]; then \
-			base_name=$$(basename "$$asm_file" .asm); \
-			echo "  Compiling $$base_name"; \
-			$(ASM) -f elf64 "$$asm_file" -o "$(RAMFS_DIR)/bin/$$base_name.o"; \
-		fi; \
-	done
+$(RAMFS_CPIO): $(RAMFS_STATIC_FILES) $(PROGRAM_OBJECTS)
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ramfs archive from: $(RAMFS_DIR)"
-	@# Ensure optional fonts and assets exist in ramfs
+	@mkdir -p $(dir $@)
 	@mkdir -p $(RAMFS_DIR)/etc
 	@mkdir -p $(RAMFS_DIR)/usr/share/fonts
 	@if [ -f Example/src/drivers/video/Lat15-Terminus16.psf ]; then \
 		cp Example/src/drivers/video/Lat15-Terminus16.psf $(RAMFS_DIR)/usr/share/fonts/Lat15-Terminus16.psf; \
 	fi
-	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$(ISO_DIR)/boot/ramfs.cpio)
-	@cpio -itv < $(ISO_DIR)/boot/ramfs.cpio
-	@cp $(CONF_DIR)/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
+	@(cd $(RAMFS_DIR) && find . | cpio -H newc -o > ../$@)
+	@cpio -itv < $@
+
+$(BUILD_DIR)/$(TARGET): $(ISO_DIR)/boot/kernel.elf $(RAMFS_CPIO) $(GRUB_CFG_DST)
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) ISO from: $(ISO_DIR)"
-	@$(GRUBMKRESCUE) -o $(BUILD_DIR)/$(TARGET) $(ISO_DIR)
+	@$(GRUBMKRESCUE) -o $@ $(ISO_DIR)
+
+build-x86_64:
+	$(call RUN_LABELED_MAKE,)
+
+build-x86_64-test:
+	$(call RUN_LABELED_MAKE,ENABLE_TESTS=1 )
+
+build-x86_64-internal: $(BUILD_DIR)/$(TARGET)
 ifdef ENABLE_TESTS
 	@echo "$(COLOR_GREEN)Build with tests successful.$(COLOR_RESET)\nISO created in: $(BUILD_DIR)/$(TARGET)"
 else
@@ -283,20 +175,10 @@ endif
 	@echo "You can run ISO in QEMU by executing: $(COLOR_YELLOW)make qemu$(COLOR_RESET)"
 
 build:
-	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) kernel using Docker..."
-	@$(PROMPT_BUILD_LABEL); \
-	git_dir=$$(pwd); \
-	git_branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); \
-	git_commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); \
-	docker run --rm -e BUILD_LABEL="$$label" -e SYSINFO_GIT_BRANCH="$$git_branch" -e SYSINFO_GIT_COMMIT="$$git_commit" -v "$$PWD":/root/env cld-kernel-env make BUILD_LABEL="$$label" build-x86_64
+	$(call RUN_DOCKER_TARGET,build-x86_64)
 
 test:
-	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) kernel with tests using Docker..."
-	@$(PROMPT_BUILD_LABEL); \
-	git_dir=$$(pwd); \
-	git_branch=$$(git -c safe.directory="$$git_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || printf "unknown"); \
-	git_commit=$$(git -c safe.directory="$$git_dir" rev-parse --short=12 HEAD 2>/dev/null || printf "unknown"); \
-	docker run --rm -e BUILD_LABEL="$$label" -e SYSINFO_GIT_BRANCH="$$git_branch" -e SYSINFO_GIT_COMMIT="$$git_commit" -v "$$PWD":/root/env cld-kernel-env make BUILD_LABEL="$$label" build-x86_64-test
+	$(call RUN_DOCKER_TARGET,build-x86_64-test)
 
 build-docker:
 	@echo "$(COLOR_YELLOW)Building$(COLOR_RESET) Docker image..."
@@ -304,8 +186,8 @@ build-docker:
 
 qemu:
 	@echo "$(COLOR_GREEN)Starting$(COLOR_RESET) QEMU..."
-ifeq ($(QEMU_ISA_DEBUGCON), true)
-	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console -no-reboot $(QEMU_DISPLAY_OPTS) #-no-shutdown
+ifeq ($(QEMU_ISA_DEBUGCON),true)
+	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -device isa-debugcon,chardev=dbg_console -chardev stdio,id=dbg_console -no-reboot $(QEMU_DISPLAY_OPTS)
 else
 	@qemu-system-x86_64 -m 4G -cdrom $(BUILD_DIR)/$(TARGET) -no-reboot -no-shutdown $(QEMU_DISPLAY_OPTS)
 endif
