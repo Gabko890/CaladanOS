@@ -101,7 +101,7 @@ OBJECTS        := $(CORE_OBJECTS)
 
 CFLAGS         := -ffreestanding -m64 -mcmodel=kernel -O2 -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -nostdlib \
                   -I$(BOOT_INC_DIR) -I$(KERNEL_INC_DIR) -I$(BUILD_DIR)/generated $(UTILS_INCLUDES) \
-                  -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic $(EXTERNAL_INCLUDES) \
+                  -I$(DRIVERS_INC_DIR) -Idrivers/ps2 -Idrivers/pic -I$(LUA_DIR) $(EXTERNAL_INCLUDES) \
                   -DMSPACES -DONLY_MSPACES -DUSE_DL_PREFIX
 CFLAGS_WITH_TESTS := $(CFLAGS) -DCLDTEST_ENABLED
 
